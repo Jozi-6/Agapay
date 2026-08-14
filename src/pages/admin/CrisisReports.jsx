@@ -191,9 +191,6 @@ function CrisisReports() {
       <div className="mb-6 flex justify-between items-start">
         <div className="flex items-center gap-3">
           <FileText size={28} className="text-agapay-purple" />
-          <div>
-            <h1 className="text-3xl font-bold text-gray-800">Crisis / Crop Damage Report</h1>
-          </div>
         </div>
         <button
           onClick={() => setShowAddModal(true)}

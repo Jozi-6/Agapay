@@ -81,12 +81,6 @@ function LGUInterventions() {
       title="LGU Interventions"
       description="Local Government Unit intervention programs"
     >
-      {/* Page Header with Add Button */}
-      <div className="mb-6 flex justify-between items-start">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">LGU Interventions</h1>
-          <p className="text-gray-600">Beneficiaries under Local Government Unit interventions</p>
-        </div>
         <button
           onClick={() => setShowAddModal(true)}
           className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-agapay-purple to-agapay-blue text-white font-bold rounded-xl hover:shadow-lg transition-all"
@@ -94,8 +88,7 @@ function LGUInterventions() {
           <Plus size={20} />
           Add Beneficiary
         </button>
-      </div>
-
+        
       {/* Filters Section */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-6">
         <div className="flex items-center justify-between mb-4">

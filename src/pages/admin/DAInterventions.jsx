@@ -79,12 +79,6 @@ function DAInterventions() {
       title="DA Interventions"
       description="Department of Agriculture intervention programs"
     >
-      {/* Page Header */}
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-800 mb-2">DA Interventions</h1>
-        <p className="text-gray-600">Beneficiaries under Department of Agriculture interventions</p>
-      </div>
-
       {/* Filters Section */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-6">
         <div className="flex items-center justify-between mb-4">
