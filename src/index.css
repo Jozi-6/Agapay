@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+@theme {
+  --color-agapay-purple: #667eea;
+  --color-agapay-purpleDark: #764ba2;
+  --color-agapay-blue: #5a67d8;
+  --color-agapay-lavender: #f5f3ff;
+  --color-agapay-lavenderLight: #faf5ff;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: Arial, sans-serif;
+  background: #f5f6f8;
+}
+
+.app {
+  min-height: 100vh;
+}
