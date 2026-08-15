@@ -11,6 +11,10 @@ import Users from "./pages/admin/Users";
 import AuditTrail from "./pages/admin/AuditTrail";
 import Reports from "./pages/admin/Reports";
 import AgriculturalTechnologistDashboard from "./pages/agricultural-technologist/Dashboard";
+import AgriculturalTechnologistBeneficiaryValidation from "./pages/agricultural-technologist/BeneficiaryValidation";
+import AgriculturalTechnologistDisasterReports from "./pages/agricultural-technologist/DisasterReports";
+import AgriculturalTechnologistDAInterventions from "./pages/agricultural-technologist/DAInterventions";
+import AgriculturalTechnologistLGUInterventions from "./pages/agricultural-technologist/LGUInterventions";
 import DataEncoderDashboard from "./pages/data-encoder/Dashboard";
 
 function App() {
@@ -91,7 +95,8 @@ function App() {
             </ProtectedRoute>
           } 
         />
-        
+
+        {/* Agricultural Technologist routes - canonical path */}
         <Route 
           path="/agricultural-technologist/dashboard" 
           element={
@@ -100,7 +105,81 @@ function App() {
             </ProtectedRoute>
           } 
         />
-        
+        <Route 
+          path="/agricultural-technologist/beneficiary-validation" 
+          element={
+            <ProtectedRoute allowedRoles={["AGRICULTURAL_TECHNOLOGIST"]}>
+              <AgriculturalTechnologistBeneficiaryValidation />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/agricultural-technologist/da-intervention" 
+          element={
+            <ProtectedRoute allowedRoles={["AGRICULTURAL_TECHNOLOGIST"]}>
+              <AgriculturalTechnologistDAInterventions />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/agricultural-technologist/lgu-intervention" 
+          element={
+            <ProtectedRoute allowedRoles={["AGRICULTURAL_TECHNOLOGIST"]}>
+              <AgriculturalTechnologistLGUInterventions />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/agricultural-technologist/disaster-reports" 
+          element={
+            <ProtectedRoute allowedRoles={["AGRICULTURAL_TECHNOLOGIST"]}>
+              <AgriculturalTechnologistDisasterReports />
+            </ProtectedRoute>
+          } 
+        />
+
+        {/* Agricultural Technologist routes - /agritech alias */}
+        <Route 
+          path="/agritech/dashboard" 
+          element={
+            <ProtectedRoute allowedRoles={["AGRICULTURAL_TECHNOLOGIST"]}>
+              <AgriculturalTechnologistDashboard />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/agritech/beneficiary-validation" 
+          element={
+            <ProtectedRoute allowedRoles={["AGRICULTURAL_TECHNOLOGIST"]}>
+              <AgriculturalTechnologistBeneficiaryValidation />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/agritech/da-intervention" 
+          element={
+            <ProtectedRoute allowedRoles={["AGRICULTURAL_TECHNOLOGIST"]}>
+              <AgriculturalTechnologistDAInterventions />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/agritech/lgu-intervention" 
+          element={
+            <ProtectedRoute allowedRoles={["AGRICULTURAL_TECHNOLOGIST"]}>
+              <AgriculturalTechnologistLGUInterventions />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/agritech/disaster-reports" 
+          element={
+            <ProtectedRoute allowedRoles={["AGRICULTURAL_TECHNOLOGIST"]}>
+              <AgriculturalTechnologistDisasterReports />
+            </ProtectedRoute>
+          } 
+        />
+
         <Route 
           path="/data-encoder/dashboard" 
           element={

@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext(null);
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = '/api';
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -26,8 +26,14 @@ export function AuthProvider({ children }) {
       });
       
       if (response.ok) {
-        const data = await response.json();
-        setUser(data.user);
+        const text = await response.text();
+        try {
+          const data = JSON.parse(text);
+          setUser(data.user);
+        } catch (e) {
+          console.error('Failed to parse verify response:', text);
+          localStorage.removeItem('token');
+        }
       } else {
         localStorage.removeItem('token');
       }
@@ -40,23 +46,38 @@ export function AuthProvider({ children }) {
   };
 
   const login = async (email, password) => {
-    const response = await fetch(`${API_URL}/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ email, password })
-    });
+    try {
+      const response = await fetch(`${API_URL}/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ email, password })
+      });
 
-    const data = await response.json();
+      const text = await response.text();
+      let data;
+      
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        console.error('Failed to parse login response:', text);
+        throw new Error('Unable to connect to the AGAPAY server. Please make sure the backend is running.');
+      }
 
-    if (!response.ok) {
-      throw new Error(data.error || 'Login failed');
+      if (!response.ok) {
+        throw new Error(data.error || 'Login failed');
+      }
+
+      localStorage.setItem('token', data.token);
+      setUser(data.user);
+      return data.user;
+    } catch (error) {
+      if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+        throw new Error('Unable to connect to the AGAPAY server. Please make sure the backend is running.');
+      }
+      throw error;
     }
-
-    localStorage.setItem('token', data.token);
-    setUser(data.user);
-    return data.user;
   };
 
   const logout = () => {
@@ -65,23 +86,38 @@ export function AuthProvider({ children }) {
   };
 
   const register = async (email, password, name, role) => {
-    const response = await fetch(`${API_URL}/register`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ email, password, name, role })
-    });
+    try {
+      const response = await fetch(`${API_URL}/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ email, password, name, role })
+      });
 
-    const data = await response.json();
+      const text = await response.text();
+      let data;
+      
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        console.error('Failed to parse register response:', text);
+        throw new Error('Unable to connect to the AGAPAY server. Please make sure the backend is running.');
+      }
 
-    if (!response.ok) {
-      throw new Error(data.error || 'Registration failed');
+      if (!response.ok) {
+        throw new Error(data.error || 'Registration failed');
+      }
+
+      localStorage.setItem('token', data.token);
+      setUser(data.user);
+      return data.user;
+    } catch (error) {
+      if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+        throw new Error('Unable to connect to the AGAPAY server. Please make sure the backend is running.');
+      }
+      throw error;
     }
-
-    localStorage.setItem('token', data.token);
-    setUser(data.user);
-    return data.user;
   };
 
   return (

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { X, AlertCircle, CheckCircle } from 'lucide-react';
+import { X, Calendar } from 'lucide-react';
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = '/api';
 
 const CRISIS_TYPES = [
   'Typhoon',

@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { AdminLayout } from '../../components/AdminLayout';
-import { FileText, Plus, Download, FileJson, Eye, Check } from 'lucide-react';
+import { Search, Filter, X, Plus, FileText, Check, Download, FileJson } from 'lucide-react';
 import { NewCrisisReportModal } from '../../components/NewCrisisReportModal';
 import { PhotoGalleryModal } from '../../components/PhotoGalleryModal';
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = '/api';
 const CRISIS_TYPES = [
   'Typhoon',
   'Drought / El Niño',

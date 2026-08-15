@@ -3,7 +3,7 @@ import { AdminLayout } from '../../components/AdminLayout';
 import { AddBeneficiaryModal } from '../../components/AddBeneficiaryModal';
 import { Search, Filter, X, Plus } from 'lucide-react';
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = '/api';
 
 function LGUInterventions() {
   const [beneficiaries, setBeneficiaries] = useState([]);
@@ -81,6 +81,9 @@ function LGUInterventions() {
       title="LGU Interventions"
       description="Local Government Unit intervention programs"
     >
+      {/* Page Header */}
+      <div className="mb-6 flex justify-between items-start">
+        <div></div>
         <button
           onClick={() => setShowAddModal(true)}
           className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-agapay-purple to-agapay-blue text-white font-bold rounded-xl hover:shadow-lg transition-all"
@@ -88,6 +91,7 @@ function LGUInterventions() {
           <Plus size={20} />
           Add Beneficiary
         </button>
+      </div>
         
       {/* Filters Section */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-6">

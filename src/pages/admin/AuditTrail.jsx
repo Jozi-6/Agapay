@@ -1,4 +1,5 @@
 import { AdminLayout } from '../../components/AdminLayout';
+import { AuditTrailPanel } from '../../components/AuditTrailPanel';
 
 function AuditTrail() {
   return (
@@ -6,9 +7,7 @@ function AuditTrail() {
       title="Audit Trail"
       description="System activity and change logs"
     >
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <p className="text-gray-600">Audit trail content will be displayed here.</p>
-      </div>
+      <AuditTrailPanel />
     </AdminLayout>
   );
 }

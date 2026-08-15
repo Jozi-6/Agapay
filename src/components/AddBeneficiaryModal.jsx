@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { X, AlertCircle, CheckCircle } from 'lucide-react';
+import { X, Calendar, CheckCircle, AlertCircle } from 'lucide-react';
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = '/api';
 const BARANGAYS = [
   'Poblacion', 'Samoki', 'Bontoc Ili', 'Ambasing', 'Asid', 'Balili', 
   'Calot', 'Dalupirip', 'Fidelisan', 'Kadaclan', 'Libacao', 

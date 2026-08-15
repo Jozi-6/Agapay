@@ -108,6 +108,45 @@ db.exec(`
   )
 `);
 
+// Migrations: add new columns if they don't exist yet (SQLite has no ADD COLUMN IF NOT EXISTS)
+function addColumnIfMissing(table, column, definition) {
+  const columns = db.pragma(`table_info(${table})`);
+  if (!columns.some((col) => col.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    console.log(`Added column '${column}' to '${table}'`);
+  }
+}
+
+// Beneficiary validation status (Agricultural Technologist workflow)
+addColumnIfMissing('beneficiaries', 'validation_status', "TEXT DEFAULT 'Pending'");
+
+// GPS coordinates and photo attachments for damage / crisis reports
+addColumnIfMissing('crisis_reports', 'latitude', 'REAL');
+addColumnIfMissing('crisis_reports', 'longitude', 'REAL');
+addColumnIfMissing('crisis_reports', 'photos', 'TEXT');
+
+
+
+
+// Create audit trail table (for system activity logging)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS audit_trail (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    username TEXT NOT NULL,
+    user_role TEXT NOT NULL,
+    action TEXT NOT NULL,
+    module TEXT NOT NULL,
+    record_type TEXT,
+    record_id INTEGER,
+    record_affected TEXT,
+    description TEXT,
+    ip_address TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  )
+`);
+
 // Seed data function
 function seedDatabase() {
   const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
@@ -213,6 +252,6 @@ function seedDatabase() {
   }
 }
 
-seedDatabase();
+// seedDatabase();
 
 export default db;

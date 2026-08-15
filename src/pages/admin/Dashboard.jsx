@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { AdminLayout } from '../../components/AdminLayout';
-import { Search, Filter, Plus, Download, Upload, Package, ArrowRight } from 'lucide-react';
+import { Search, Filter, Plus, Download, Upload, Package, ArrowRight, FileText } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = '/api';
 
 function AdminDashboard() {
   const { user, logout } = useAuth();
@@ -98,6 +98,7 @@ function AdminDashboard() {
     { label: 'Interventions', icon: ArrowRight, onClick: () => navigate('/admin/da-interventions') },
     { label: 'Upload Excel', icon: Upload, onClick: () => console.log('Upload Excel') },
     { label: 'Inventory', icon: Package, onClick: () => console.log('Inventory') },
+    { label: 'Audit Trail', icon: FileText, onClick: () => navigate('/admin/audit-trail') },
   ];
 
   return (
@@ -178,86 +179,90 @@ function AdminDashboard() {
           {error}
         </div>
       ) : (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-          {/* Card Header */}
-          <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-3">
-            <div className="w-10 h-10 bg-agapay-purple/10 rounded-lg flex items-center justify-center">
-              <Filter size={20} className="text-agapay-purple" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Main Content - Beneficiary Table */}
+          <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            {/* Card Header */}
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-3">
+              <div className="w-10 h-10 bg-agapay-purple/10 rounded-lg flex items-center justify-center">
+                <Filter size={20} className="text-agapay-purple" />
+              </div>
+              <h2 className="text-xl font-bold text-gray-800">All Beneficiaries</h2>
             </div>
-            <h2 className="text-xl font-bold text-gray-800">All Beneficiaries</h2>
-          </div>
 
-          {/* Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">
-                    Name
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">
-                    RSBSA Number
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">
-                    Barangay
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">
-                    Household
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">
-                    Intervention
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">
-                    Status
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {beneficiaries.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
-                      No beneficiaries found
-                    </td>
+            {/* Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">
+                      Name
+                    </th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">
+                      RSBSA Number
+                    </th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">
+                      Barangay
+                    </th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">
+                      Household
+                    </th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">
+                      Intervention
+                    </th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">
+                      Status
+                    </th>
                   </tr>
-                ) : (
-                  beneficiaries.map((beneficiary) => (
-                    <tr
-                      key={beneficiary.id}
-                      onClick={() => handleBeneficiaryClick(beneficiary)}
-                      className="hover:bg-agapay-lavender cursor-pointer transition-colors"
-                    >
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="font-semibold text-gray-900">{beneficiary.name}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-gray-600">{beneficiary.rsbsaNumber}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-gray-600">{beneficiary.barangay}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-gray-600">{beneficiary.household}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-agapay-lavender text-agapay-purple">
-                          {beneficiary.intervention}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
-                          beneficiary.status === 'Claimed' 
-                            ? 'bg-green-100 text-green-700 border border-green-200' 
-                            : 'bg-red-100 text-red-700 border border-red-200'
-                        }`}>
-                          {beneficiary.status || 'Unclaimed'}
-                        </span>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {beneficiaries.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                        No beneficiaries found
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    beneficiaries.map((beneficiary) => (
+                      <tr
+                        key={beneficiary.id}
+                        onClick={() => handleBeneficiaryClick(beneficiary)}
+                        className="hover:bg-agapay-lavender cursor-pointer transition-colors"
+                      >
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="font-semibold text-gray-900">{beneficiary.name}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-gray-600">{beneficiary.rsbsaNumber}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-gray-600">{beneficiary.barangay}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-gray-600">{beneficiary.household}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-agapay-lavender text-agapay-purple">
+                            {beneficiary.intervention}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
+                            beneficiary.status === 'Claimed' 
+                              ? 'bg-green-100 text-green-700 border border-green-200' 
+                              : 'bg-red-100 text-red-700 border border-red-200'
+                          }`}>
+                            {beneficiary.status || 'Unclaimed'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
+
         </div>
       )}
     </AdminLayout>
