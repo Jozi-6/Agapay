@@ -36,7 +36,7 @@ function AgritechField({ label, required, error, children }) {
   );
 }
 
-export function DamageReportForm({ onSubmit }) {
+export function DamageReportForm({ onSubmit, apiPathPrefix = '/agritech' }) {
   const [formData, setFormData] = useState(initialForm);
   const [beneficiaries, setBeneficiaries] = useState([]);
   const [errors, setErrors] = useState({});
@@ -64,7 +64,7 @@ export function DamageReportForm({ onSubmit }) {
   const fetchBeneficiaries = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/agritech/beneficiaries`, {
+      const response = await fetch(`${API_URL}${apiPathPrefix}/beneficiaries`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
 
@@ -194,7 +194,8 @@ export function DamageReportForm({ onSubmit }) {
       formPayload.append('longitude', formData.longitude.trim());
       photos.forEach((photo) => formPayload.append('photos', photo));
 
-      const response = await fetch(`${API_URL}/agritech/damage-reports`, {
+      const endpoint = `${API_URL}${apiPathPrefix}/damage-reports`;
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formPayload,

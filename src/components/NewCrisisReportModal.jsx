@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, Calendar } from 'lucide-react';
+import { OFFICIAL_BARANGAYS } from '../constants/barangays.js';
 
 const API_URL = '/api';
 
@@ -18,12 +19,6 @@ const CROP_STAGES = [
   'Reproductive',
   'Maturing',
   'Harvested'
-];
-
-const BARANGAYS = [
-  'Poblacion', 'Samoki', 'Bontoc Ili', 'Ambasing', 'Asid', 'Balili', 
-  'Calot', 'Dalupirip', 'Fidelisan', 'Kadaclan', 'Libacao', 
-  'Maligcong', 'Tocdo', 'Dalang', 'Singil', 'Tambac'
 ];
 
 export function NewCrisisReportModal({ isOpen, onClose, onSuccess }) {
@@ -289,7 +284,7 @@ export function NewCrisisReportModal({ isOpen, onClose, onSuccess }) {
                 }`}
               >
                 <option value="">Select barangay</option>
-                {BARANGAYS.map(b => (
+                {OFFICIAL_BARANGAYS.map(b => (
                   <option key={b} value={b}>{b}</option>
                 ))}
               </select>

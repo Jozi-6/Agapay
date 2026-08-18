@@ -16,6 +16,10 @@ import AgriculturalTechnologistDisasterReports from "./pages/agricultural-techno
 import AgriculturalTechnologistDAInterventions from "./pages/agricultural-technologist/DAInterventions";
 import AgriculturalTechnologistLGUInterventions from "./pages/agricultural-technologist/LGUInterventions";
 import DataEncoderDashboard from "./pages/data-encoder/Dashboard";
+import DataEncoderBeneficiaryProfiles from "./pages/data-encoder/BeneficiaryProfiles";
+import DataEncoderInterventionRecords from "./pages/data-encoder/InterventionRecords";
+import DataEncoderInventory from "./pages/data-encoder/Inventory";
+import DataEncoderDisasterReports from "./pages/data-encoder/DisasterReports";
 
 function App() {
   return (
@@ -185,6 +189,42 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={["DATA_ENCODER"]}>
               <DataEncoderDashboard />
+            </ProtectedRoute>
+          } 
+        />
+
+        <Route 
+          path="/data-encoder/beneficiary-profiles" 
+          element={
+            <ProtectedRoute allowedRoles={["DATA_ENCODER"]}>
+              <DataEncoderBeneficiaryProfiles />
+            </ProtectedRoute>
+          } 
+        />
+
+        <Route 
+          path="/data-encoder/intervention-records" 
+          element={
+            <ProtectedRoute allowedRoles={["DATA_ENCODER"]}>
+              <DataEncoderInterventionRecords />
+            </ProtectedRoute>
+          } 
+        />
+
+        <Route 
+          path="/data-encoder/inventory" 
+          element={
+            <ProtectedRoute allowedRoles={["DATA_ENCODER"]}>
+              <DataEncoderInventory />
+            </ProtectedRoute>
+          } 
+        />
+
+        <Route 
+          path="/data-encoder/disaster-reports" 
+          element={
+            <ProtectedRoute allowedRoles={["DATA_ENCODER"]}>
+              <DataEncoderDisasterReports />
             </ProtectedRoute>
           } 
         />

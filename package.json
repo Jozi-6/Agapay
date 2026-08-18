@@ -4,9 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "server": "node server/server.js",
-    "dev:all": "concurrently \"npm run dev\" \"npm run server\"",
+    "dev": "concurrently -n frontend,backend -c cyan,green \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "dev:frontend": "vite",
+    "dev:backend": "node server/server.js",
+    "server": "npm run dev:backend",
+    "dev:all": "npm run dev",
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview"
@@ -27,7 +29,8 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.2",
-    "tailwindcss": "^4.3.3"
+    "tailwindcss": "^4.3.3",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",

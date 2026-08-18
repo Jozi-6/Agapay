@@ -63,6 +63,8 @@ db.exec(`
     farm_location TEXT,
     crop_type TEXT,
     household TEXT,
+    created_by INTEGER,
+    updated_by INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `);
@@ -119,6 +121,8 @@ function addColumnIfMissing(table, column, definition) {
 
 // Beneficiary validation status (Agricultural Technologist workflow)
 addColumnIfMissing('beneficiaries', 'validation_status', "TEXT DEFAULT 'Pending'");
+addColumnIfMissing('beneficiaries', 'created_by', 'INTEGER');
+addColumnIfMissing('beneficiaries', 'updated_by', 'INTEGER');
 
 // GPS coordinates and photo attachments for damage / crisis reports
 addColumnIfMissing('crisis_reports', 'latitude', 'REAL');
@@ -144,6 +148,19 @@ db.exec(`
     ip_address TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  )
+`);
+
+// Inventory table used by Data Encoder dashboard low-stock metrics.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS inventory_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_name TEXT NOT NULL,
+    current_quantity REAL NOT NULL DEFAULT 0,
+    low_stock_threshold REAL NOT NULL DEFAULT 10,
+    unit TEXT NOT NULL DEFAULT 'pcs',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `);
 
@@ -182,11 +199,14 @@ function seedDatabase() {
   const beneficiaryCount = db.prepare('SELECT COUNT(*) as count FROM beneficiaries').get();
   
   if (beneficiaryCount.count === 0) {
+    const adminUser = db.prepare(`SELECT id FROM users WHERE email = 'admin@agapay.gov'`).get();
+    const createdBy = adminUser ? adminUser.id : null;
+
     // Juan Dela Cruz - DA Seeds
     const juanId = db.prepare(`
-      INSERT INTO beneficiaries (first_name, middle_name, last_name, name, rsbsa_number, birthdate, age, address, barangay, contact_number, farm_location, crop_type, household) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run('Juan', 'Abenoja', 'Dela Cruz', 'Juan Abenoja Dela Cruz', 'RSBSA-0231', '1980-05-15', 44, 'Purok 1', 'Poblacion', '09123456789', 'Poblacion (2 hectares)', 'Cabbage', '3 members').lastInsertRowid;
+      INSERT INTO beneficiaries (first_name, middle_name, last_name, name, rsbsa_number, birthdate, age, address, barangay, contact_number, farm_location, crop_type, household, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('Juan', 'Abenoja', 'Dela Cruz', 'Juan Abenoja Dela Cruz', 'RSBSA-0231', '1980-05-15', 44, 'Purok 1', 'Poblacion', '09123456789', 'Poblacion (2 hectares)', 'Cabbage', '3 members', createdBy).lastInsertRowid;
 
     db.prepare(`
       INSERT INTO interventions (beneficiary_id, intervention_type, intervention_name, status, intervention_date) 
@@ -195,9 +215,9 @@ function seedDatabase() {
 
     // Maria Santos - LGU Fertilizer
     const mariaId = db.prepare(`
-      INSERT INTO beneficiaries (first_name, middle_name, last_name, name, rsbsa_number, birthdate, age, address, barangay, contact_number, farm_location, crop_type, household) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run('Maria', 'Gonzales', 'Santos', 'Maria Gonzales Santos', 'RSBSA-0198', '1985-08-20', 39, 'Purok 2', 'Samoki', '09234567890', 'Samoki (1.5 hectares)', 'Lettuce', '1 member').lastInsertRowid;
+      INSERT INTO beneficiaries (first_name, middle_name, last_name, name, rsbsa_number, birthdate, age, address, barangay, contact_number, farm_location, crop_type, household, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('Maria', 'Gonzales', 'Santos', 'Maria Gonzales Santos', 'RSBSA-0198', '1985-08-20', 39, 'Purok 2', 'Samoki', '09234567890', 'Samoki (1.5 hectares)', 'Lettuce', '1 member', createdBy).lastInsertRowid;
 
     db.prepare(`
       INSERT INTO interventions (beneficiary_id, intervention_type, intervention_name, status, intervention_date) 
@@ -206,9 +226,9 @@ function seedDatabase() {
 
     // Pedro Reyes - LGU Newly Registered
     const pedroId = db.prepare(`
-      INSERT INTO beneficiaries (first_name, middle_name, last_name, name, rsbsa_number, birthdate, age, address, barangay, contact_number, farm_location, crop_type, household) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run('Pedro', 'Garcia', 'Reyes', 'Pedro Garcia Reyes', null, '1990-03-10', 34, 'Purok 3', 'Bontoc Ili', '09345678901', 'Bontoc Ili (1 hectare)', 'Tomato', '2 members').lastInsertRowid;
+      INSERT INTO beneficiaries (first_name, middle_name, last_name, name, rsbsa_number, birthdate, age, address, barangay, contact_number, farm_location, crop_type, household, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('Pedro', 'Garcia', 'Reyes', 'Pedro Garcia Reyes', null, '1990-03-10', 34, 'Purok 3', 'Bontoc Ili', '09345678901', 'Bontoc Ili (1 hectare)', 'Tomato', '2 members', createdBy).lastInsertRowid;
 
     db.prepare(`
       INSERT INTO interventions (beneficiary_id, intervention_type, intervention_name, status, intervention_date) 
@@ -216,6 +236,28 @@ function seedDatabase() {
     `).run(pedroId, 'LGU', 'Production Input', 'Unclaimed', '2024-03-01');
 
     console.log('Database seeded with test beneficiaries and interventions');
+  }
+
+  const inventoryCount = db.prepare('SELECT COUNT(*) as count FROM inventory_items').get();
+  if (inventoryCount.count === 0) {
+    const seedItems = [
+      ['Hybrid Rice Seeds', 8, 12, 'sacks'],
+      ['Complete Fertilizer 14-14-14', 5, 10, 'bags'],
+      ['Urea Fertilizer', 7, 12, 'bags'],
+      ['Organic Compost', 20, 15, 'bags'],
+      ['Crop Protection Kit', 3, 8, 'sets']
+    ];
+
+    const stmt = db.prepare(`
+      INSERT INTO inventory_items (item_name, current_quantity, low_stock_threshold, unit)
+      VALUES (?, ?, ?, ?)
+    `);
+
+    for (const item of seedItems) {
+      stmt.run(...item);
+    }
+
+    console.log('Database seeded with inventory items');
   }
 
   // Seed crisis reports
@@ -252,6 +294,6 @@ function seedDatabase() {
   }
 }
 
-// seedDatabase();
+seedDatabase();
 
 export default db;

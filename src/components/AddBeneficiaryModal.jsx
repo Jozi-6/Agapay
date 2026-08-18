@@ -1,14 +1,17 @@
 import { useState, useEffect } from 'react';
 import { X, Calendar, CheckCircle, AlertCircle } from 'lucide-react';
+import { OFFICIAL_BARANGAYS } from '../constants/barangays.js';
 
 const API_URL = '/api';
-const BARANGAYS = [
-  'Poblacion', 'Samoki', 'Bontoc Ili', 'Ambasing', 'Asid', 'Balili', 
-  'Calot', 'Dalupirip', 'Fidelisan', 'Kadaclan', 'Libacao', 
-  'Maligcong', 'Tocdo', 'Dalang', 'Singil', 'Tambac'
-];
 
-export function AddBeneficiaryModal({ isOpen, onClose, onSuccess }) {
+export function AddBeneficiaryModal({
+  isOpen,
+  onClose,
+  onSuccess,
+  interventionsEndpoint = `${API_URL}/admin/interventions-list?type=LGU`,
+  submitEndpoint = `${API_URL}/admin/add-beneficiary`,
+  title = 'Add Beneficiary to LGU Intervention'
+}) {
   const [formData, setFormData] = useState({
     firstName: '',
     middleName: '',
@@ -47,7 +50,7 @@ export function AddBeneficiaryModal({ isOpen, onClose, onSuccess }) {
   const fetchLguInterventions = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/admin/interventions-list?type=LGU`, {
+      const response = await fetch(interventionsEndpoint, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -136,7 +139,7 @@ export function AddBeneficiaryModal({ isOpen, onClose, onSuccess }) {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/admin/add-beneficiary`, {
+      const response = await fetch(submitEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -148,7 +151,7 @@ export function AddBeneficiaryModal({ isOpen, onClose, onSuccess }) {
       const data = await response.json();
 
       if (!response.ok) {
-        setMessage({ type: 'error', text: data.error || 'Failed to add beneficiary' });
+        setMessage({ type: 'error', text: data.message || data.error || 'Failed to add beneficiary' });
         return;
       }
 
@@ -172,7 +175,7 @@ export function AddBeneficiaryModal({ isOpen, onClose, onSuccess }) {
       <div className="bg-white rounded-2xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="sticky top-0 bg-gradient-to-r from-agapay-purple to-agapay-blue p-6 flex justify-between items-center z-10">
-          <h2 className="text-2xl font-bold text-white">Add Beneficiary to LGU Intervention</h2>
+          <h2 className="text-2xl font-bold text-white">{title}</h2>
           <button
             onClick={onClose}
             className="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition-colors"
@@ -344,7 +347,7 @@ export function AddBeneficiaryModal({ isOpen, onClose, onSuccess }) {
                   }`}
                 >
                   <option value="">Select Barangay</option>
-                  {BARANGAYS.map(b => (
+                  {OFFICIAL_BARANGAYS.map(b => (
                     <option key={b} value={b}>{b}</option>
                   ))}
                 </select>

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { AdminLayout } from '../../components/AdminLayout';
 import { AddBeneficiaryModal } from '../../components/AddBeneficiaryModal';
 import { Search, Filter, X, Plus } from 'lucide-react';
+import { OFFICIAL_BARANGAYS } from '../../constants/barangays.js';
 
 const API_URL = '/api';
 
@@ -154,7 +155,7 @@ function LGUInterventions() {
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-agapay-purple focus:border-transparent bg-white"
             >
               <option value="">All Barangays</option>
-              {availableFilters.barangays.map(barangay => (
+              {OFFICIAL_BARANGAYS.map(barangay => (
                 <option key={barangay} value={barangay}>{barangay}</option>
               ))}
             </select>

@@ -1,3 +1,5 @@
+import { OFFICIAL_BARANGAYS } from '../../constants/barangays.js';
+
 export const DISASTER_OPTIONS = [
   'Typhoon Cristina',
   'Typhoon',
@@ -9,24 +11,7 @@ export const DISASTER_OPTIONS = [
   'Other Agricultural Crisis',
 ];
 
-export const BARANGAY_OPTIONS = [
-  'Poblacion',
-  'Samoki',
-  'Bontoc Ili',
-  'Ambasing',
-  'Asid',
-  'Balili',
-  'Calot',
-  'Dalupirip',
-  'Fidelisan',
-  'Kadaclan',
-  'Libacao',
-  'Maligcong',
-  'Tocdo',
-  'Dalang',
-  'Singil',
-  'Tambac',
-];
+export const BARANGAY_OPTIONS = OFFICIAL_BARANGAYS;
 
 export const CROP_OPTIONS = [
   'Rice',

@@ -3,6 +3,7 @@ import { AdminLayout } from '../../components/AdminLayout';
 import { Search, Filter, X, Plus, FileText, Check, Download, FileJson } from 'lucide-react';
 import { NewCrisisReportModal } from '../../components/NewCrisisReportModal';
 import { PhotoGalleryModal } from '../../components/PhotoGalleryModal';
+import { OFFICIAL_BARANGAYS } from '../../constants/barangays.js';
 
 const API_URL = '/api';
 const CRISIS_TYPES = [
@@ -240,7 +241,7 @@ function CrisisReports() {
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-agapay-purple focus:border-transparent bg-white"
             >
               <option value="All">All</option>
-              {availableFilters.barangays.map(barangay => (
+              {OFFICIAL_BARANGAYS.map(barangay => (
                 <option key={barangay} value={barangay}>{barangay}</option>
               ))}
             </select>
