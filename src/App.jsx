@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { useEffect } from 'react';
 
 import Login from "./pages/Login";
 import Register from "./pages/Register";
@@ -22,8 +23,21 @@ import DataEncoderInventory from "./pages/data-encoder/Inventory";
 import DataEncoderCrisisReports from "./pages/data-encoder/CrisisReports";
 
 function App() {
+  const basename = import.meta.env.MODE === 'production' ? '/Agapay' : '/';
+  
+  // Handle GitHub Pages SPA fallback from 404.html
+  useEffect(() => {
+    if (import.meta.env.MODE === 'production') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const fallbackPath = urlParams.get('path');
+      if (fallbackPath) {
+        window.history.replaceState(null, '', '/' + fallbackPath);
+      }
+    }
+  }, []);
+  
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={basename}>
       <Routes>
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<Login />} />

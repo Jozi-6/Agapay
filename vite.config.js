@@ -7,6 +7,7 @@ export default defineConfig(({ mode }) => {
   const backendTarget = env.VITE_API_PROXY_TARGET || 'http://localhost:3001'
 
   return {
+    base: mode === 'production' ? '/Agapay/' : '/',
     plugins: [react()],
     server: {
       port: 5173,
