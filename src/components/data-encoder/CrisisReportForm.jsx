@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Upload, X, CheckCircle, AlertCircle, MapPin, Search } from 'lucide-react';
 import {
-  DISASTER_OPTIONS,
+  CRISIS_OPTIONS,
   CROP_OPTIONS,
   CROP_STAGE_OPTIONS,
   DEFAULT_DISASTER,
-} from './constants';
+} from '../agritech/constants';
 import { OFFICIAL_BARANGAYS } from '../../constants/barangays.js';
 
 const API_URL = '/api';
@@ -25,7 +25,7 @@ const initialForm = {
   longitude: '',
 };
 
-function AgritechField({ label, required, error, children }) {
+function CrisisReportField({ label, required, error, children }) {
   return (
     <div>
       <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -37,7 +37,7 @@ function AgritechField({ label, required, error, children }) {
   );
 }
 
-export function DamageReportForm({ onSubmit, apiPathPrefix = '/agritech' }) {
+export function CrisisReportForm({ onSubmit, apiPathPrefix = '/data-encoder' }) {
   const [formData, setFormData] = useState(initialForm);
   const [beneficiaries, setBeneficiaries] = useState([]);
   const [errors, setErrors] = useState({});
@@ -225,7 +225,7 @@ export function DamageReportForm({ onSubmit, apiPathPrefix = '/agritech' }) {
     }
   };
 
-  const inputBaseClass = 'w-full px-4 py-2.5 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-agapay-purple focus:border-transparent transition-all text-sm';
+  const inputBaseClass = 'w-full px-4 py-2.5 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition-all text-sm';
   const inputErrorClass = 'border-red-500 focus:ring-red-500';
 
   return (
@@ -244,20 +244,20 @@ export function DamageReportForm({ onSubmit, apiPathPrefix = '/agritech' }) {
 
       {/* Crisis Type & Barangay */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <AgritechField label="Crisis Type" required>
+        <CrisisReportField label="Crisis Type" required>
           <select
             name="disaster"
             value={formData.disaster}
             onChange={handleInputChange}
             className={`${inputBaseClass} ${errors.disaster ? inputErrorClass : ''}`}
           >
-            {DISASTER_OPTIONS.map((disaster) => (
+            {CRISIS_OPTIONS.map((disaster) => (
               <option key={disaster} value={disaster}>{disaster}</option>
             ))}
           </select>
-        </AgritechField>
+        </CrisisReportField>
 
-        <AgritechField label="Barangay" required error={errors.barangay}>
+        <CrisisReportField label="Barangay" required error={errors.barangay}>
           <select
             name="barangay"
             value={formData.barangay}
@@ -269,11 +269,11 @@ export function DamageReportForm({ onSubmit, apiPathPrefix = '/agritech' }) {
               <option key={barangay} value={barangay}>{barangay}</option>
             ))}
           </select>
-        </AgritechField>
+        </CrisisReportField>
       </div>
 
       {/* Farmer / Beneficiary */}
-      <AgritechField label="Farmer / Beneficiary" required error={errors.farmerName}>
+      <CrisisReportField label="Farmer / Beneficiary" required error={errors.farmerName}>
         <div className="relative" ref={searchRef}>
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
           <input
@@ -291,7 +291,7 @@ export function DamageReportForm({ onSubmit, apiPathPrefix = '/agritech' }) {
                   <button
                     type="button"
                     onClick={() => handleSelectBeneficiary(beneficiary)}
-                    className="w-full text-left px-4 py-2.5 hover:bg-agapay-lavender transition-colors"
+                    className="w-full text-left px-4 py-2.5 hover:bg-indigo-50 transition-colors"
                   >
                     <span className="block text-sm font-medium text-gray-800">{beneficiary.name}</span>
                     <span className="block text-xs text-gray-500">
@@ -308,11 +308,11 @@ export function DamageReportForm({ onSubmit, apiPathPrefix = '/agritech' }) {
             </p>
           )}
         </div>
-      </AgritechField>
+      </CrisisReportField>
 
       {/* Crop / Farm Location & Crop Stage */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <AgritechField label="Crop / Farm Location">
+        <CrisisReportField label="Crop / Farm Location">
           <select
             name="cropType"
             value={formData.cropType}
@@ -324,9 +324,9 @@ export function DamageReportForm({ onSubmit, apiPathPrefix = '/agritech' }) {
               <option key={crop} value={crop}>{crop}</option>
             ))}
           </select>
-        </AgritechField>
+        </CrisisReportField>
 
-        <AgritechField label="Farm Location">
+        <CrisisReportField label="Farm Location">
           <input
             type="text"
             name="farmLocation"
@@ -335,9 +335,9 @@ export function DamageReportForm({ onSubmit, apiPathPrefix = '/agritech' }) {
             placeholder="e.g., Poblacion Farm"
             className={inputBaseClass}
           />
-        </AgritechField>
+        </CrisisReportField>
 
-        <AgritechField label="Crop Stage">
+        <CrisisReportField label="Crop Stage">
           <select
             name="cropStage"
             value={formData.cropStage}
@@ -349,11 +349,11 @@ export function DamageReportForm({ onSubmit, apiPathPrefix = '/agritech' }) {
               <option key={stage} value={stage}>{stage}</option>
             ))}
           </select>
-        </AgritechField>
+        </CrisisReportField>
       </div>
 
       {/* Area Coverage */}
-      <AgritechField label="Area Coverage">
+      <CrisisReportField label="Area Coverage">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label className="block text-xs text-gray-500 mb-1.5">Total Area (ha)</label>
@@ -386,10 +386,10 @@ export function DamageReportForm({ onSubmit, apiPathPrefix = '/agritech' }) {
             />
           </div>
         </div>
-      </AgritechField>
+      </CrisisReportField>
 
       {/* Estimated Cost (Optional) */}
-      <AgritechField label="Estimated Cost (Optional)">
+      <CrisisReportField label="Estimated Cost (Optional)">
         <input
           type="number"
           step="0.01"
@@ -401,18 +401,18 @@ export function DamageReportForm({ onSubmit, apiPathPrefix = '/agritech' }) {
           className={inputBaseClass}
         />
         <p className="text-xs text-gray-500 mt-1">Leave blank if not applicable</p>
-      </AgritechField>
+      </CrisisReportField>
 
       {/* GPS Coordinates */}
       <div>
         <div className="flex items-center gap-2 mb-2">
-          <MapPin size={16} className="text-agapay-purple" />
+          <MapPin size={16} className="text-indigo-600" />
           <label className="text-sm font-medium text-gray-700">
             GPS Coordinates <span className="text-red-500">*</span>
           </label>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <AgritechField label="Latitude" required error={errors.latitude}>
+          <CrisisReportField label="Latitude" required error={errors.latitude}>
             <input
               type="number"
               step="0.0001"
@@ -422,8 +422,8 @@ export function DamageReportForm({ onSubmit, apiPathPrefix = '/agritech' }) {
               placeholder="e.g., 17.0894"
               className={`${inputBaseClass} ${errors.latitude ? inputErrorClass : ''}`}
             />
-          </AgritechField>
-          <AgritechField label="Longitude" required error={errors.longitude}>
+          </CrisisReportField>
+          <CrisisReportField label="Longitude" required error={errors.longitude}>
             <input
               type="number"
               step="0.0001"
@@ -433,7 +433,7 @@ export function DamageReportForm({ onSubmit, apiPathPrefix = '/agritech' }) {
               placeholder="e.g., 120.9750"
               className={`${inputBaseClass} ${errors.longitude ? inputErrorClass : ''}`}
             />
-          </AgritechField>
+          </CrisisReportField>
         </div>
       </div>
 
@@ -443,8 +443,8 @@ export function DamageReportForm({ onSubmit, apiPathPrefix = '/agritech' }) {
           Photo / Site Attachment
         </label>
         <div className="flex items-center justify-center w-full">
-          <label className="w-full flex flex-col items-center justify-center px-6 py-8 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-agapay-purple hover:bg-agapay-lavender transition-colors">
-            <Upload size={24} className="text-agapay-purple mb-2" />
+          <label className="w-full flex flex-col items-center justify-center px-6 py-8 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-indigo-600 hover:bg-indigo-50 transition-colors">
+            <Upload size={24} className="text-indigo-600 mb-2" />
             <span className="text-sm font-medium text-gray-700">Click to upload site photos</span>
             <span className="text-xs text-gray-500 mt-1">JPG, PNG up to 5 images (proof of damage)</span>
             <input
@@ -498,7 +498,7 @@ export function DamageReportForm({ onSubmit, apiPathPrefix = '/agritech' }) {
         <button
           type="submit"
           disabled={loading}
-          className="flex-1 px-6 py-3 bg-agapay-purple text-white font-bold rounded-xl hover:bg-agapay-purpleDark transition-all hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          className="flex-1 px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
           {loading ? (
             <>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, Calendar, CheckCircle, AlertCircle } from 'lucide-react';
 import { OFFICIAL_BARANGAYS } from '../constants/barangays.js';
+import { MLGU_INTERVENTIONS, DA_INTERVENTIONS } from '../constants/interventions.js';
 
 const API_URL = '/api';
 
@@ -10,7 +11,8 @@ export function AddBeneficiaryModal({
   onSuccess,
   interventionsEndpoint = `${API_URL}/admin/interventions-list?type=LGU`,
   submitEndpoint = `${API_URL}/admin/add-beneficiary`,
-  title = 'Add Beneficiary to LGU Intervention'
+  title = 'Add Beneficiary to LGU Intervention',
+  interventionType = 'LGU'
 }) {
   const [formData, setFormData] = useState({
     firstName: '',
@@ -23,11 +25,11 @@ export function AddBeneficiaryModal({
     contactNumber: '',
     farmLocation: '',
     cropType: '',
+    beneficiaryType: interventionType === 'DA' ? 'DA' : 'LGU',
     rsbsaNumber: '',
     lguIntervention: '',
     interventionStatus: 'Unclaimed',
-    interventionDate: new Date().toISOString().split('T')[0],
-    household: '1 member'
+    interventionDate: new Date().toISOString().split('T')[0]
   });
 
   const [lguInterventions, setLguInterventions] = useState([]);
@@ -37,9 +39,16 @@ export function AddBeneficiaryModal({
 
   useEffect(() => {
     if (isOpen) {
-      fetchLguInterventions();
+      // Use predefined interventions based on type
+      if (interventionType === 'DA') {
+        setLguInterventions(DA_INTERVENTIONS);
+      } else if (interventionType === 'LGU') {
+        setLguInterventions(MLGU_INTERVENTIONS);
+      } else {
+        setLguInterventions([]);
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, interventionType]);
 
   useEffect(() => {
     if (formData.birthdate) {
@@ -47,23 +56,8 @@ export function AddBeneficiaryModal({
     }
   }, [formData.birthdate]);
 
-  const fetchLguInterventions = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(interventionsEndpoint, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setLguInterventions(data.interventions);
-      }
-    } catch (err) {
-      console.error('Error fetching LGU interventions:', err);
-    }
-  };
+  const interventionLabel = interventionType === 'DA' ? 'DA Intervention' : 'MLGU Intervention';
+  const modalTitle = interventionType === 'DA' ? 'Add Beneficiary to DA Intervention' : 'Add Beneficiary to MLGU Intervention';
 
   const calculateAge = (birthdate) => {
     const birthDateObj = new Date(birthdate);
@@ -104,6 +98,14 @@ export function AddBeneficiaryModal({
       newErrors.barangay = 'Barangay is required';
     }
 
+    if (!formData.beneficiaryType) {
+      newErrors.beneficiaryType = 'Beneficiary type is required';
+    }
+
+    if (formData.beneficiaryType === 'DA' && (!formData.rsbsaNumber || !formData.rsbsaNumber.trim())) {
+      newErrors.rsbsaNumber = 'RSBSA Number is required for DA beneficiaries';
+    }
+
     if (!formData.contactNumber.trim()) {
       newErrors.contactNumber = 'Contact number is required';
     } else if (!/^09\d{2}-\d{3}-\d{4}$/.test(formData.contactNumber)) {
@@ -111,7 +113,7 @@ export function AddBeneficiaryModal({
     }
 
     if (!formData.lguIntervention) {
-      newErrors.lguIntervention = 'LGU Intervention is required';
+      newErrors.lguIntervention = 'Intervention is required';
     }
 
     setErrors(newErrors);
@@ -175,7 +177,7 @@ export function AddBeneficiaryModal({
       <div className="bg-white rounded-2xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="sticky top-0 bg-gradient-to-r from-agapay-purple to-agapay-blue p-6 flex justify-between items-center z-10">
-          <h2 className="text-2xl font-bold text-white">{title}</h2>
+          <h2 className="text-2xl font-bold text-white">{modalTitle}</h2>
           <button
             onClick={onClose}
             className="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition-colors"
@@ -295,19 +297,45 @@ export function AddBeneficiaryModal({
                 )}
               </div>
 
+              {/* Beneficiary Type */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Beneficiary Type <span className="text-red-500">*</span>
+                </label>
+                <select
+                  name="beneficiaryType"
+                  value={formData.beneficiaryType}
+                  onChange={handleInputChange}
+                  className={`w-full px-4 py-3 rounded-xl border-2 bg-agapay-lavender/30 focus:outline-none focus:ring-2 focus:ring-agapay-purple focus:border-transparent transition-all ${
+                    errors.beneficiaryType ? 'border-red-500' : 'border-gray-200'
+                  }`}
+                >
+                  <option value="DA">DA</option>
+                  <option value="LGU">LGU</option>
+                </select>
+                {errors.beneficiaryType && (
+                  <p className="text-red-500 text-sm mt-1">{errors.beneficiaryType}</p>
+                )}
+              </div>
+
               {/* RSBSA Number */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  RSBSA Number
+                  RSBSA Number {formData.beneficiaryType === 'DA' ? <span className="text-red-500">*</span> : '(Optional)'}
                 </label>
                 <input
                   type="text"
                   name="rsbsaNumber"
                   value={formData.rsbsaNumber}
                   onChange={handleInputChange}
-                  placeholder="RSBSA-XXXX"
-                  className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 bg-agapay-lavender/30 focus:outline-none focus:ring-2 focus:ring-agapay-purple focus:border-transparent transition-all"
+                  placeholder={formData.beneficiaryType === 'DA' ? 'RSBSA-XXXX' : 'Optional for LGU'}
+                  className={`w-full px-4 py-3 rounded-xl border-2 bg-agapay-lavender/30 focus:outline-none focus:ring-2 focus:ring-agapay-purple focus:border-transparent transition-all ${
+                    errors.rsbsaNumber ? 'border-red-500' : 'border-gray-200'
+                  }`}
                 />
+                {errors.rsbsaNumber && (
+                  <p className="text-red-500 text-sm mt-1">{errors.rsbsaNumber}</p>
+                )}
               </div>
             </div>
 
@@ -408,14 +436,14 @@ export function AddBeneficiaryModal({
             </div>
           </div>
 
-          {/* LGU Intervention Section */}
+          {/* Intervention Section */}
           <div className="border-t border-gray-200 pt-6">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">LGU Intervention Information</h3>
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">{interventionLabel} Information</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* LGU Intervention */}
+              {/* Intervention */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  LGU Intervention <span className="text-red-500">*</span>
+                  {interventionLabel} <span className="text-red-500">*</span>
                 </label>
                 <select
                   name="lguIntervention"
@@ -425,9 +453,9 @@ export function AddBeneficiaryModal({
                     errors.lguIntervention ? 'border-red-500' : 'border-gray-200'
                   }`}
                 >
-                  <option value="">Select LGU Intervention</option>
-                  {lguInterventions.map(intervention => (
-                    <option key={intervention} value={intervention}>{intervention}</option>
+                  <option value="">Select {interventionLabel}</option>
+                  {lguInterventions.map((intervention, index) => (
+                    <option key={`${intervention}-${index}`} value={intervention}>{intervention}</option>
                   ))}
                 </select>
                 {errors.lguIntervention && (
@@ -448,7 +476,6 @@ export function AddBeneficiaryModal({
                 >
                   <option value="Unclaimed">Unclaimed</option>
                   <option value="Claimed">Claimed</option>
-                  <option value="Pending">Pending</option>
                 </select>
               </div>
 
@@ -462,21 +489,6 @@ export function AddBeneficiaryModal({
                   name="interventionDate"
                   value={formData.interventionDate}
                   onChange={handleInputChange}
-                  className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 bg-agapay-lavender/30 focus:outline-none focus:ring-2 focus:ring-agapay-purple focus:border-transparent transition-all"
-                />
-              </div>
-
-              {/* Household */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Household
-                </label>
-                <input
-                  type="text"
-                  name="household"
-                  value={formData.household}
-                  onChange={handleInputChange}
-                  placeholder="e.g., 3 members"
                   className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 bg-agapay-lavender/30 focus:outline-none focus:ring-2 focus:ring-agapay-purple focus:border-transparent transition-all"
                 />
               </div>

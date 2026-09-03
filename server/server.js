@@ -6,19 +6,53 @@ import XLSX from 'xlsx';
 import { randomUUID } from 'crypto';
 import db from './database.js';
 import { OFFICIAL_BARANGAYS, isValidBarangay, getBarangayValidationError } from './constants.js';
+import { DA_INTERVENTIONS, MLGU_INTERVENTIONS, INTERVENTION_SOURCES, isValidInterventionForSource } from './interventions.js';
 
+import { generateToken, createAuthMiddleware, requireRole, requireAdmin, requireAgritech, requireDataEncoder } from './auth.js';
 
-import { generateToken, authMiddleware } from './auth.js';
+// Create auth middleware with db instance
+const authMiddleware = createAuthMiddleware(db);
 import { logAudit, getAuditLogs, getAuditActions } from './auditLogger.js';
 import { getReportFilters, getReportRecords, generateCsv, generateExcel, generatePdf } from './reportExporter.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors());
+app.use(cors({
+  origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+  credentials: true
+}));
 app.use(express.json());
 
-const EXCEL_REQUIRED_COLUMNS = ['first_name', 'last_name', 'barangay', 'birthdate', 'lgu_intervention'];
+// RSBSA Disclaimer for UI usage
+const RSBSA_DISCLAIMER = "RSBSA information maintained by OMAG for local administrative purposes.";
+
+const EXCEL_IMPORT_TYPES = {
+  BENEFICIARY: 'beneficiary',
+  CRISIS_REPORT: 'crisis_report'
+};
+
+const EXCEL_IMPORT_SCHEMAS = {
+  [EXCEL_IMPORT_TYPES.BENEFICIARY]: {
+    label: 'Beneficiary Records',
+    aliases: {
+      first_name: ['first_name', 'first name'],
+      last_name: ['last_name', 'last name'],
+      barangay: ['barangay'],
+      birthdate: ['birthdate'],
+      lgu_intervention: ['lgu_intervention', 'lgu intervention', 'intervention']
+    }
+  },
+  [EXCEL_IMPORT_TYPES.CRISIS_REPORT]: {
+    label: 'Crisis Reports',
+    aliases: {
+      crisis_type: ['crisis_type', 'crisis type', 'crisis', 'type'],
+      barangay: ['barangay'],
+      farmer_name: ['farmer_name', 'farmer name', 'beneficiary_name', 'beneficiary name', 'beneficiary', 'farmer']
+    }
+  }
+};
+
 const excelPreviewStore = new Map();
 const EXCEL_PREVIEW_TTL_MS = 15 * 60 * 1000;
 
@@ -77,6 +111,50 @@ function cleanupExpiredExcelPreviews() {
   }
 }
 
+function normalizeExcelHeader(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function getImportTypeFromRequest(req) {
+  const rawType = String(req.body?.importType || req.body?.type || req.query?.importType || req.query?.type || EXCEL_IMPORT_TYPES.BENEFICIARY).trim().toLowerCase();
+  return rawType === 'crisis_report' || rawType === 'crisis-reports' || rawType === 'crisis reports' ? EXCEL_IMPORT_TYPES.CRISIS_REPORT : EXCEL_IMPORT_TYPES.BENEFICIARY;
+}
+
+function getMatchingHeader(headers, aliases) {
+  const normalizedHeaders = new Set(headers.map(normalizeExcelHeader));
+  for (const candidate of aliases) {
+    const normalizedCandidate = normalizeExcelHeader(candidate);
+    if (normalizedHeaders.has(normalizedCandidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function getExcelSchemaForImportType(importType) {
+  return EXCEL_IMPORT_SCHEMAS[importType] || EXCEL_IMPORT_SCHEMAS[EXCEL_IMPORT_TYPES.BENEFICIARY];
+}
+
+function getExcelRowValue(row, aliases) {
+  const normalizedRow = {};
+  Object.keys(row || {}).forEach((key) => {
+    normalizedRow[normalizeExcelHeader(key)] = row[key];
+  });
+
+  for (const alias of aliases) {
+    const normalizedAlias = normalizeExcelHeader(alias);
+    if (normalizedRow[normalizedAlias] !== undefined) {
+      return normalizedRow[normalizedAlias];
+    }
+  }
+
+  return '';
+}
+
 // Login endpoint
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body || {};
@@ -105,6 +183,16 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password'
+      });
+    }
+
+    // Check if user account is approved
+    if (user.status !== 'approved') {
+      return res.status(403).json({
+        success: false,
+        message: user.status === 'rejected' 
+          ? 'Your account has been rejected. Please contact the administrator.' 
+          : 'Your account is pending approval. Please wait for the administrator to approve your account.'
       });
     }
 
@@ -151,7 +239,7 @@ app.get('/api/verify', authMiddleware, (req, res) => {
   });
 });
 
-// Register endpoint (for development - note: this allows any role, should be restricted in production)
+// Register endpoint (public signup - creates pending user)
 app.post('/api/register', async (req, res) => {
   const { email, password, name, role } = req.body;
   
@@ -170,260 +258,570 @@ app.post('/api/register', async (req, res) => {
     });
   }
   
+  // Check if email already exists
+  const existingUser = db.prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase());
+  if (existingUser) {
+    return res.status(400).json({
+      success: false,
+      message: 'Email already registered'
+    });
+  }
+  
   const saltRounds = 10;
   const hashedPassword = bcrypt.hashSync(password, saltRounds);
   
   try {
     const result = db.prepare(`
-      INSERT INTO users (email, password, name, role) 
-      VALUES (?, ?, ?, ?)
-    `).run(email, hashedPassword, name, role);
+      INSERT INTO users (email, password, name, role, status) 
+      VALUES (?, ?, ?, ?, 'pending')
+    `).run(email.toLowerCase(), hashedPassword, name, role);
     
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
-    const token = generateToken(user);
-
-    logAudit({
-      userId: user.id,
-      username: user.name,
-      userRole: user.role,
-      action: 'Added User',
-      module: 'User Management',
-      recordType: 'user',
-      recordId: user.id,
-      recordAffected: user.email,
-      description: `Added new ${role.replace('_', ' ')} account`
-    });
+    const newUser = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
     
-    res.json({
+    return res.json({
       success: true,
-      message: 'Registration successful',
+      message: 'Registration successful. Please wait for administrator approval.',
       user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role
-      },
-      token
+        id: newUser.id,
+        email: newUser.email,
+        name: newUser.name,
+        role: newUser.role,
+        status: newUser.status
+      }
     });
   } catch (error) {
-    if (error.code === 'SQLITE_CONSTRAINT') {
-      return res.status(400).json({
-        success: false,
-        message: 'Email already exists'
-      });
-    }
-    res.status(500).json({
+    console.error('Registration error:', error);
+    return res.status(500).json({
       success: false,
       message: 'Registration failed'
     });
   }
 });
 
-// Dashboard statistics endpoint
-app.get('/api/admin/statistics', authMiddleware, (req, res) => {
-  if (req.user.role !== 'ADMIN') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
+// Get pending users (admin only)
+app.get('/api/admin/pending-users', authMiddleware, requireAdmin, (req, res) => {
+  const pendingUsers = db.prepare(`
+    SELECT id, email, name, role, created_at 
+    FROM users 
+    WHERE status = 'pending'
+    ORDER BY created_at DESC
+  `).all();
+  
+  res.json({
+    success: true,
+    pendingUsers
+  });
+});
 
+// Approve user (admin only)
+app.post('/api/admin/approve-user/:id', authMiddleware, requireAdmin, (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    db.prepare(`
+      UPDATE users 
+      SET status = 'approved', approved_by = ?, approved_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(req.user.id, id);
+    
+    logAudit({
+      userId: req.user.id,
+      username: req.user.name,
+      userRole: req.user.role,
+      action: 'Approved User',
+      module: 'User Management',
+      recordType: 'user',
+      recordId: id,
+      description: `Approved user account with ID ${id}`
+    });
+    
+    res.json({
+      success: true,
+      message: 'User approved successfully'
+    });
+  } catch (error) {
+    console.error('User approval error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to approve user'
+    });
+  }
+});
+
+// Reject user (admin only)
+app.post('/api/admin/reject-user/:id', authMiddleware, requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const { reason } = req.body;
+  
+  try {
+    db.prepare(`
+      UPDATE users 
+      SET status = 'rejected', rejection_reason = ?
+      WHERE id = ?
+    `).run(reason || 'No reason provided', id);
+    
+    logAudit({
+      userId: req.user.id,
+      username: req.user.name,
+      userRole: req.user.role,
+      action: 'Rejected User',
+      module: 'User Management',
+      recordType: 'user',
+      recordId: id,
+      description: `Rejected user account with ID ${id}: ${reason || 'No reason provided'}`
+    });
+    
+    res.json({
+      success: true,
+      message: 'User rejected successfully'
+    });
+  } catch (error) {
+    console.error('User rejection error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to reject user'
+    });
+  }
+});
+
+// Get all users (admin only)
+app.get('/api/admin/users', authMiddleware, requireAdmin, (req, res) => {
+  const users = db.prepare(`
+    SELECT id, email, name, role, status, created_at, approved_at, rejection_reason
+    FROM users
+    ORDER BY created_at DESC
+  `).all();
+  
+  res.json({
+    success: true,
+    users
+  });
+});
+
+// Create user directly (admin only)
+app.post('/api/admin/users', authMiddleware, requireAdmin, async (req, res) => {
+  const { email, password, name, role } = req.body;
+  
+  if (!email || !password || !name || !role) {
+    return res.status(400).json({
+      success: false,
+      message: 'All fields are required'
+    });
+  }
+  
+  const validRoles = ['ADMIN', 'AGRICULTURAL_TECHNOLOGIST', 'DATA_ENCODER'];
+  if (!validRoles.includes(role)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid role'
+    });
+  }
+  
+  // Check if email already exists
+  const existingUser = db.prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase());
+  if (existingUser) {
+    return res.status(400).json({
+      success: false,
+      message: 'Email already registered'
+    });
+  }
+  
+  const saltRounds = 10;
+  const hashedPassword = bcrypt.hashSync(password, saltRounds);
+  
+  try {
+    const result = db.prepare(`
+      INSERT INTO users (email, password, name, role, status, approved_by, approved_at) 
+      VALUES (?, ?, ?, ?, 'approved', ?, CURRENT_TIMESTAMP)
+    `).run(email.toLowerCase(), hashedPassword, name, role, req.user.id);
+    
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
+    
+    logAudit({
+      userId: req.user.id,
+      username: req.user.name,
+      userRole: req.user.role,
+      action: 'Created User',
+      module: 'User Management',
+      recordType: 'user',
+      recordId: user.id,
+      recordAffected: user.email,
+      description: `Created new ${role.replace('_', ' ')} account`
+    });
+    
+    res.json({
+      success: true,
+      message: 'User created successfully',
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        status: user.status
+      }
+    });
+  } catch (error) {
+    console.error('User creation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create user'
+    });
+  }
+});
+
+// Dashboard statistics endpoint
+app.get('/api/admin/statistics', authMiddleware, requireAdmin, (req, res) => {
   const totalBeneficiaries = db.prepare('SELECT COUNT(*) as count FROM beneficiaries').get();
-  const pendingRSBSA = db.prepare("SELECT COUNT(*) as count FROM beneficiaries WHERE rsbsa_number IS NULL").get();
-  const activeInterventions = db.prepare('SELECT COUNT(*) as count FROM interventions').get();
+  const daBeneficiaries = db.prepare("SELECT COUNT(*) as count FROM beneficiaries b JOIN interventions i ON b.id = i.beneficiary_id WHERE i.intervention_type = 'DA'").get();
+  const mlguBeneficiaries = db.prepare("SELECT COUNT(*) as count FROM beneficiaries b JOIN interventions i ON b.id = i.beneficiary_id WHERE i.intervention_type = 'LGU'").get();
+  const claimedCount = db.prepare("SELECT COUNT(*) as count FROM interventions WHERE status = 'Claimed'").get();
+  const unclaimedCount = db.prepare("SELECT COUNT(*) as count FROM interventions WHERE status = 'Unclaimed'").get();
   const daInterventions = db.prepare("SELECT COUNT(*) as count FROM interventions WHERE intervention_type = 'DA'").get();
+  const mlguInterventions = db.prepare("SELECT COUNT(*) as count FROM interventions WHERE intervention_type = 'LGU'").get();
+  const crisisReports = db.prepare('SELECT COUNT(*) as count FROM crisis_reports').get();
 
   res.json({
     totalBeneficiaries: totalBeneficiaries.count,
-    pendingRSBSA: pendingRSBSA.count,
-    activeInterventions: activeInterventions.count,
-    activeDisasterReports: daInterventions.count
+    daBeneficiaries: daBeneficiaries.count,
+    mlguBeneficiaries: mlguBeneficiaries.count,
+    claimed: claimedCount.count,
+    unclaimed: unclaimedCount.count,
+    daInterventions: daInterventions.count,
+    mlguInterventions: mlguInterventions.count,
+    crisisReports: crisisReports.count
   });
 });
 
-// Beneficiaries search endpoint
-app.get('/api/admin/beneficiaries', authMiddleware, (req, res) => {
-  if (req.user.role !== 'ADMIN') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-
-  const { search } = req.query;
-  let query = 'SELECT * FROM beneficiaries';
-  const params = [];
-
-  if (search) {
-    query += ' WHERE name LIKE ? OR first_name LIKE ? OR last_name LIKE ? OR rsbsa_number LIKE ? OR barangay LIKE ?';
-    const searchTerm = `%${search}%`;
-    params.push(searchTerm, searchTerm, searchTerm, searchTerm, searchTerm);
-  }
-
-  const beneficiaries = db.prepare(query).all(...params);
+// Beneficiaries search endpoint with pagination and filtering
+app.get('/api/admin/beneficiaries', authMiddleware, requireAdmin, (req, res) => {
+  const { 
+    search = '', 
+    barangay = 'All', 
+    interventionType = 'All', 
+    status = 'All',
+    page = 1,
+    limit = 50
+  } = req.query;
   
-  res.json({
-    beneficiaries: beneficiaries.map(b => ({
-      id: b.id,
-      name: b.name,
-      firstName: b.first_name,
-      lastName: b.last_name,
-      rsbsaNumber: b.rsbsa_number,
-      barangay: b.barangay,
-      household: b.household
-    }))
-  });
-});
-
-// DA Interventions endpoint (updated for new schema)
-app.get('/api/admin/da-interventions', authMiddleware, (req, res) => {
-  if (req.user.role !== 'ADMIN') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-
-  const { search, rsbsa, barangay, intervention } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  const limitNum = parseInt(limit);
   
   let query = `
-    SELECT DISTINCT b.id, b.first_name, b.last_name, b.name, b.rsbsa_number, b.barangay, b.household, i.intervention_name, i.status, i.intervention_date
+    SELECT DISTINCT 
+      b.id, b.name, b.rsbsa_number, b.barangay, b.address, b.contact_number,
+      i.intervention_type, i.intervention_name, i.custom_intervention_name, i.status, i.quantity_received
     FROM beneficiaries b
-    JOIN interventions i ON b.id = i.beneficiary_id
-    WHERE i.intervention_type = 'DA'
+    LEFT JOIN interventions i ON b.id = i.beneficiary_id
+    WHERE 1=1
   `;
+  
   const params = [];
-
+  
+  // Search by name, RSBSA, or barangay
   if (search) {
-    query += ' AND (b.name LIKE ? OR b.first_name LIKE ? OR b.last_name LIKE ? OR b.rsbsa_number LIKE ?)';
-    const searchTerm = `%${search}%`;
-    params.push(searchTerm, searchTerm, searchTerm, searchTerm);
+    query += ` AND (b.name LIKE ? OR b.rsbsa_number LIKE ? OR b.barangay LIKE ?)`;
+    const searchPattern = `%${search}%`;
+    params.push(searchPattern, searchPattern, searchPattern);
   }
-
-  if (rsbsa) {
-    query += ' AND b.rsbsa_number LIKE ?';
-    params.push(`%${rsbsa}%`);
-  }
-
-  if (barangay) {
-    query += ' AND b.barangay = ?';
+  
+  // Filter by barangay
+  if (barangay !== 'All') {
+    query += ` AND b.barangay = ?`;
     params.push(barangay);
   }
-
-  if (intervention) {
-    query += ' AND i.intervention_name = ?';
-    params.push(intervention);
+  
+  // Filter by intervention type
+  if (interventionType !== 'All') {
+    query += ` AND i.intervention_type = ?`;
+    params.push(interventionType);
   }
-
+  
+  // Filter by status
+  if (status !== 'All') {
+    query += ` AND i.status = ?`;
+    params.push(status);
+  }
+  
+  // Get total count
+  const countQuery = query.replace('SELECT DISTINCT b.id, b.name, b.rsbsa_number, b.barangay, b.address, b.contact_number, i.intervention_type, i.intervention_name, i.custom_intervention_name, i.status, i.quantity_received', 'SELECT COUNT(DISTINCT b.id)');
+  const totalCount = db.prepare(countQuery).get(...params);
+  
+  // Add pagination
+  query += ` ORDER BY b.created_at DESC LIMIT ? OFFSET ?`;
+  params.push(limitNum, offset);
+  
   const beneficiaries = db.prepare(query).all(...params);
   
-  // Extract unique barangays and interventions for filters
-  const allDABeneficiaries = db.prepare(`
-    SELECT DISTINCT b.barangay, i.intervention_name
-    FROM beneficiaries b
-    JOIN interventions i ON b.id = i.beneficiary_id
-    WHERE i.intervention_type = 'DA'
-  `).all();
+  // Format intervention display name and RSBSA display
+  const formattedBeneficiaries = beneficiaries.map(b => ({
+    ...b,
+    intervention: b.custom_intervention_name || b.intervention_name || 'None',
+    rsbsaNumber: b.intervention_type === 'DA' ? (b.rsbsa_number || 'N/A') : 'N/A',
+    quantityReceived: b.quantity_received || null
+  }));
   
-  const uniqueInterventions = [...new Set(allDABeneficiaries.map(i => i.intervention_name))].sort();
-
   res.json({
-    beneficiaries: beneficiaries.map(b => ({
-      id: b.id,
-      name: b.name,
-      rsbsaNumber: b.rsbsa_number,
-      barangay: b.barangay,
-      household: b.household,
-      intervention: b.intervention_name,
-      status: b.status,
-      date: b.intervention_date
-    })),
-    filters: {
-      barangays: OFFICIAL_BARANGAYS,
-      interventions: uniqueInterventions
+    beneficiaries: formattedBeneficiaries,
+    pagination: {
+      total: totalCount.count,
+      page: parseInt(page),
+      limit: limitNum,
+      totalPages: Math.ceil(totalCount.count / limitNum)
     }
   });
 });
 
-// LGU Interventions endpoint
-app.get('/api/admin/lgu-interventions', authMiddleware, (req, res) => {
-  if (req.user.role !== 'ADMIN') {
-    return res.status(403).json({ error: 'Admin access required' });
+// DA Interventions endpoint with pagination and filtering
+app.get('/api/admin/da-interventions', authMiddleware, requireAdmin, (req, res) => {
+  const { 
+    search = '', 
+    rsbsa = '',
+    barangay = 'All', 
+    status = 'All',
+    intervention = '',
+    page = 1,
+    limit = 50
+  } = req.query;
+  
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  const limitNum = parseInt(limit);
+
+  const countParams = [];
+  let countQuery = `
+    SELECT COUNT(DISTINCT b.id) AS count
+    FROM beneficiaries b
+    JOIN interventions i ON b.id = i.beneficiary_id
+    WHERE i.intervention_type = 'DA'
+  `;
+
+  if (search) {
+    const searchTerm = `%${search}%`;
+    countQuery += ' AND (b.name LIKE ? OR b.rsbsa_number LIKE ?)';
+    countParams.push(searchTerm, searchTerm);
   }
 
-  const { search, rsbsa, barangay, intervention } = req.query;
+  if (rsbsa) {
+    const rsbsaTerm = `%${rsbsa}%`;
+    countQuery += ' AND b.rsbsa_number LIKE ?';
+    countParams.push(rsbsaTerm);
+  }
   
+  if (barangay !== 'All') {
+    countQuery += ' AND b.barangay = ?';
+    countParams.push(barangay);
+  }
+  
+  if (status !== 'All') {
+    countQuery += ' AND i.status = ?';
+    countParams.push(status);
+  }
+
+  if (intervention) {
+    countQuery += ' AND (i.intervention_name = ? OR i.custom_intervention_name = ?)';
+    countParams.push(intervention, intervention);
+  }
+
+  const totalCount = db.prepare(countQuery).get(...countParams) || { count: 0 };
+
+  const queryParams = [];
   let query = `
-    SELECT DISTINCT b.id, b.first_name, b.last_name, b.name, b.rsbsa_number, b.barangay, b.household, i.intervention_name, i.status, i.intervention_date
+    SELECT DISTINCT 
+      b.id, b.name, b.rsbsa_number, b.barangay, 
+      i.intervention_name, i.custom_intervention_name, i.status, i.quantity_received, i.intervention_date
+    FROM beneficiaries b
+    JOIN interventions i ON b.id = i.beneficiary_id
+    WHERE i.intervention_type = 'DA'
+  `;
+
+  if (search) {
+    const searchTerm = `%${search}%`;
+    query += ' AND (b.name LIKE ? OR b.rsbsa_number LIKE ?)';
+    queryParams.push(searchTerm, searchTerm);
+  }
+
+  if (rsbsa) {
+    const rsbsaTerm = `%${rsbsa}%`;
+    query += ' AND b.rsbsa_number LIKE ?';
+    queryParams.push(rsbsaTerm);
+  }
+  
+  if (barangay !== 'All') {
+    query += ' AND b.barangay = ?';
+    queryParams.push(barangay);
+  }
+  
+  if (status !== 'All') {
+    query += ' AND i.status = ?';
+    queryParams.push(status);
+  }
+
+  if (intervention) {
+    query += ' AND (i.intervention_name = ? OR i.custom_intervention_name = ?)';
+    queryParams.push(intervention, intervention);
+  }
+  
+  // Add pagination
+  query += ` ORDER BY i.created_at DESC LIMIT ? OFFSET ?`;
+  queryParams.push(limitNum, offset);
+
+  const beneficiaries = db.prepare(query).all(...queryParams);
+  
+  const formattedBeneficiaries = beneficiaries.map(b => ({
+    ...b,
+    intervention: b.custom_intervention_name || b.intervention_name,
+    rsbsaNumber: b.rsbsa_number || 'N/A',
+    quantityReceived: b.quantity_received || null
+  }));
+
+  res.json({
+    beneficiaries: formattedBeneficiaries,
+    pagination: {
+      total: totalCount.count,
+      page: parseInt(page),
+      limit: limitNum,
+      totalPages: Math.ceil(totalCount.count / limitNum)
+    }
+  });
+});
+
+// LGU Interventions endpoint with pagination and filtering
+app.get('/api/admin/lgu-interventions', authMiddleware, requireAdmin, (req, res) => {
+  const { 
+    search = '', 
+    rsbsa = '',
+    barangay = 'All', 
+    status = 'All',
+    intervention = '',
+    page = 1,
+    limit = 50
+  } = req.query;
+  
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  const limitNum = parseInt(limit);
+
+  const countParams = [];
+  let countQuery = `
+    SELECT COUNT(DISTINCT b.id) AS count
     FROM beneficiaries b
     JOIN interventions i ON b.id = i.beneficiary_id
     WHERE i.intervention_type = 'LGU'
   `;
-  const params = [];
 
   if (search) {
-    query += ' AND (b.name LIKE ? OR b.first_name LIKE ? OR b.last_name LIKE ? OR b.rsbsa_number LIKE ?)';
     const searchTerm = `%${search}%`;
-    params.push(searchTerm, searchTerm, searchTerm, searchTerm);
+    countQuery += ' AND (b.name LIKE ? OR b.barangay LIKE ?)';
+    countParams.push(searchTerm, searchTerm);
   }
 
   if (rsbsa) {
-    query += ' AND b.rsbsa_number LIKE ?';
-    params.push(`%${rsbsa}%`);
+    const rsbsaTerm = `%${rsbsa}%`;
+    countQuery += ' AND b.rsbsa_number LIKE ?';
+    countParams.push(rsbsaTerm);
   }
-
-  if (barangay) {
-    query += ' AND b.barangay = ?';
-    params.push(barangay);
+  
+  if (barangay !== 'All') {
+    countQuery += ' AND b.barangay = ?';
+    countParams.push(barangay);
+  }
+  
+  if (status !== 'All') {
+    countQuery += ' AND i.status = ?';
+    countParams.push(status);
   }
 
   if (intervention) {
-    query += ' AND i.intervention_name = ?';
-    params.push(intervention);
+    countQuery += ' AND (i.intervention_name = ? OR i.custom_intervention_name = ?)';
+    countParams.push(intervention, intervention);
   }
 
-  const beneficiaries = db.prepare(query).all(...params);
-  
-  // Extract unique barangays and interventions for filters
-  const allLGUBeneficiaries = db.prepare(`
-    SELECT DISTINCT b.barangay, i.intervention_name
+  const totalCount = db.prepare(countQuery).get(...countParams) || { count: 0 };
+
+  const queryParams = [];
+  let query = `
+    SELECT DISTINCT 
+      b.id, b.name, b.rsbsa_number, b.barangay, 
+      i.intervention_name, i.custom_intervention_name, i.status, i.quantity_received, i.intervention_date
     FROM beneficiaries b
     JOIN interventions i ON b.id = i.beneficiary_id
     WHERE i.intervention_type = 'LGU'
-  `).all();
+  `;
+
+  if (search) {
+    const searchTerm = `%${search}%`;
+    query += ' AND (b.name LIKE ? OR b.barangay LIKE ?)';
+    queryParams.push(searchTerm, searchTerm);
+  }
+
+  if (rsbsa) {
+    const rsbsaTerm = `%${rsbsa}%`;
+    query += ' AND b.rsbsa_number LIKE ?';
+    queryParams.push(rsbsaTerm);
+  }
   
-  const uniqueInterventions = [...new Set(allLGUBeneficiaries.map(i => i.intervention_name))].sort();
+  if (barangay !== 'All') {
+    query += ' AND b.barangay = ?';
+    queryParams.push(barangay);
+  }
+  
+  if (status !== 'All') {
+    query += ' AND i.status = ?';
+    queryParams.push(status);
+  }
+
+  if (intervention) {
+    query += ' AND (i.intervention_name = ? OR i.custom_intervention_name = ?)';
+    queryParams.push(intervention, intervention);
+  }
+  
+  // Add pagination
+  query += ` ORDER BY i.created_at DESC LIMIT ? OFFSET ?`;
+  queryParams.push(limitNum, offset);
+
+  const beneficiaries = db.prepare(query).all(...queryParams);
+  
+  const formattedBeneficiaries = beneficiaries.map(b => ({
+    ...b,
+    intervention: b.custom_intervention_name || b.intervention_name,
+    rsbsaNumber: 'N/A',
+    quantityReceived: b.quantity_received || null
+  }));
 
   res.json({
-    beneficiaries: beneficiaries.map(b => ({
-      id: b.id,
-      name: b.name,
-      rsbsaNumber: b.rsbsa_number,
-      barangay: b.barangay,
-      household: b.household,
-      intervention: b.intervention_name,
-      status: b.status,
-      date: b.intervention_date
-    })),
-    filters: {
-      barangays: OFFICIAL_BARANGAYS,
-      interventions: uniqueInterventions
+    beneficiaries: formattedBeneficiaries,
+    pagination: {
+      total: totalCount.count,
+      page: parseInt(page),
+      limit: limitNum,
+      totalPages: Math.ceil(totalCount.count / limitNum)
     }
   });
 });
 
 // Get all available interventions
-app.get('/api/admin/interventions-list', authMiddleware, (req, res) => {
+app.get('/api/admin/interventions-list', authMiddleware, requireAdmin, (req, res) => {
   if (req.user.role !== 'ADMIN') {
     return res.status(403).json({ error: 'Admin access required' });
   }
 
   const interventionType = req.query.type || 'LGU'; // Default to LGU
-  const interventions = db.prepare(`
-    SELECT DISTINCT intervention_name 
-    FROM interventions 
-    WHERE intervention_type = ?
-    ORDER BY intervention_name
-  `).all(interventionType);
+  
+  // Return predefined interventions based on type
+  let interventions;
+  if (interventionType === 'DA') {
+    interventions = DA_INTERVENTIONS;
+  } else if (interventionType === 'LGU') {
+    interventions = MLGU_INTERVENTIONS;
+  } else {
+    interventions = [];
+  }
 
   res.json({
-    interventions: interventions.map(i => i.intervention_name)
+    interventions: interventions
   });
 });
 
 // Add new beneficiary with intervention
-app.post('/api/admin/add-beneficiary', authMiddleware, async (req, res) => {
+app.post('/api/admin/add-beneficiary', authMiddleware, requireAdmin, async (req, res) => {
   if (req.user.role !== 'ADMIN') {
     return res.status(403).json({ error: 'Admin access required' });
   }
@@ -439,23 +837,36 @@ app.post('/api/admin/add-beneficiary', authMiddleware, async (req, res) => {
     farmLocation,
     cropType,
     rsbsaNumber,
+    beneficiaryType,
     lguIntervention,
     interventionStatus,
-    interventionDate,
-    household
+    interventionDate
   } = req.body;
 
-  // Validate required fields
+  let interventionType = 'LGU';
+  if (DA_INTERVENTIONS.includes(lguIntervention)) {
+    interventionType = 'DA';
+  } else if (MLGU_INTERVENTIONS.includes(lguIntervention)) {
+    interventionType = 'LGU';
+  }
+
+  const normalizedBeneficiaryType = (beneficiaryType || interventionType || 'LGU').toUpperCase();
+  if (!['DA', 'LGU'].includes(normalizedBeneficiaryType)) {
+    return res.status(400).json({ error: 'Invalid beneficiary type' });
+  }
+
+  if (normalizedBeneficiaryType === 'DA' && (!rsbsaNumber || !String(rsbsaNumber).trim())) {
+    return res.status(400).json({ error: 'RSBSA Number is required for DA beneficiaries.' });
+  }
+
   if (!firstName || !lastName || !birthdate || !barangay || !lguIntervention) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
-  // Validate barangay
   if (!isValidBarangay(barangay)) {
     return res.status(400).json({ error: getBarangayValidationError() });
   }
 
-  // Calculate age
   const birthDateObj = new Date(birthdate);
   const today = new Date();
   let age = today.getFullYear() - birthDateObj.getFullYear();
@@ -464,12 +875,10 @@ app.post('/api/admin/add-beneficiary', authMiddleware, async (req, res) => {
     age--;
   }
 
-  // Check age >= 18
   if (age < 18) {
     return res.status(400).json({ error: 'Beneficiary must be 18 years old or above' });
   }
 
-  // Check if beneficiary already exists
   let beneficiary = null;
   if (rsbsaNumber) {
     beneficiary = db.prepare('SELECT * FROM beneficiaries WHERE rsbsa_number = ?').get(rsbsaNumber);
@@ -479,38 +888,54 @@ app.post('/api/admin/add-beneficiary', authMiddleware, async (req, res) => {
     let beneficiaryId;
 
     if (beneficiary) {
-      // Update existing beneficiary
       beneficiaryId = beneficiary.id;
       db.prepare(`
-        UPDATE beneficiaries 
-        SET address = ?, contact_number = ?, farm_location = ?, crop_type = ?, household = ?
+        UPDATE beneficiaries
+        SET address = ?, contact_number = ?, farm_location = ?, crop_type = ?, beneficiary_type = ?, rsbsa_number = COALESCE(?, rsbsa_number)
         WHERE id = ?
-      `).run(address, contactNumber, farmLocation, cropType, household || beneficiary.household, beneficiaryId);
+      `).run(address, contactNumber, farmLocation, cropType, normalizedBeneficiaryType, rsbsaNumber || null, beneficiaryId);
     } else {
-      // Create new beneficiary
       const fullName = `${firstName} ${middleName || ''} ${lastName}`.trim();
       const result = db.prepare(`
-        INSERT INTO beneficiaries (first_name, middle_name, last_name, name, rsbsa_number, birthdate, age, address, barangay, contact_number, farm_location, crop_type, household)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(firstName, middleName, lastName, fullName, rsbsaNumber || null, birthdate, age, address, barangay, contactNumber, farmLocation, cropType, household || '1 member');
-
+        INSERT INTO beneficiaries (first_name, middle_name, last_name, name, beneficiary_type, rsbsa_number, birthdate, age, address, barangay, contact_number, farm_location, crop_type, household)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        firstName,
+        middleName,
+        lastName,
+        fullName,
+        normalizedBeneficiaryType,
+        rsbsaNumber || null,
+        birthdate,
+        age,
+        address,
+        barangay,
+        contactNumber,
+        farmLocation,
+        cropType,
+        '1 member'
+      );
       beneficiaryId = result.lastInsertRowid;
     }
 
-    // Check if intervention already exists for this beneficiary
     const existingIntervention = db.prepare(`
-      SELECT * FROM interventions 
-      WHERE beneficiary_id = ? AND intervention_type = 'LGU' AND intervention_name = ?
-    `).get(beneficiaryId, lguIntervention);
+      SELECT * FROM interventions
+      WHERE beneficiary_id = ? AND intervention_type = ? AND intervention_name = ?
+    `).get(beneficiaryId, interventionType, lguIntervention);
 
     if (!existingIntervention) {
-      // Add intervention record
       db.prepare(`
         INSERT INTO interventions (beneficiary_id, intervention_type, intervention_name, status, intervention_date)
         VALUES (?, ?, ?, ?, ?)
-      `).run(beneficiaryId, 'LGU', lguIntervention, interventionStatus || 'Unclaimed', interventionDate || new Date().toISOString().split('T')[0]);
+      `).run(
+        beneficiaryId,
+        interventionType,
+        lguIntervention,
+        interventionStatus || 'Unclaimed',
+        interventionDate || new Date().toISOString().split('T')[0]
+      );
     } else {
-      return res.status(400).json({ error: 'This beneficiary already has this LGU intervention' });
+      return res.status(400).json({ error: `This beneficiary already has this ${interventionType} intervention` });
     }
 
     logAudit({
@@ -530,7 +955,7 @@ app.post('/api/admin/add-beneficiary', authMiddleware, async (req, res) => {
     res.json({
       success: true,
       message: 'Beneficiary added successfully',
-      beneficiaryId: beneficiaryId
+      beneficiaryId
     });
   } catch (error) {
     console.error('Error adding beneficiary:', error);
@@ -539,7 +964,7 @@ app.post('/api/admin/add-beneficiary', authMiddleware, async (req, res) => {
 });
 
 // Get all crisis reports with filtering
-app.get('/api/admin/crisis-reports', authMiddleware, (req, res) => {
+app.get('/api/admin/crisis-reports', authMiddleware, requireAdmin, (req, res) => {
   if (req.user.role !== 'ADMIN') {
     return res.status(403).json({ error: 'Admin access required' });
   }
@@ -594,7 +1019,9 @@ app.get('/api/admin/crisis-reports', authMiddleware, (req, res) => {
       id: r.id,
       beneficiaryId: r.beneficiary_id,
       beneficiaryName: r.beneficiary_name,
+      farmerName: r.beneficiary_name,
       crisisType: r.crisis_type,
+      disaster: r.crisis_type,
       crisisDate: r.crisis_date,
       barangay: r.barangay,
       farmLocation: r.farm_location,
@@ -606,7 +1033,17 @@ app.get('/api/admin/crisis-reports', authMiddleware, (req, res) => {
       estimatedDamageCost: r.estimated_damage_cost,
       remarks: r.remarks,
       status: r.status,
-      createdAt: r.created_at
+      createdAt: r.created_at,
+      latitude: r.latitude,
+      longitude: r.longitude,
+      photos: (() => {
+        if (!r.photos) return [];
+        try {
+          return JSON.parse(r.photos);
+        } catch {
+          return [];
+        }
+      })()
     })),
     filters: {
       crisisTypes,
@@ -617,7 +1054,7 @@ app.get('/api/admin/crisis-reports', authMiddleware, (req, res) => {
 });
 
 // Get crisis report summary statistics
-app.get('/api/admin/crisis-reports/summary', authMiddleware, (req, res) => {
+app.get('/api/admin/crisis-reports/summary', authMiddleware, requireAdmin, (req, res) => {
   if (req.user.role !== 'ADMIN') {
     return res.status(403).json({ error: 'Admin access required' });
   }
@@ -658,7 +1095,7 @@ app.get('/api/admin/crisis-reports/summary', authMiddleware, (req, res) => {
 });
 
 // Create a new crisis report
-app.post('/api/admin/crisis-reports', authMiddleware, (req, res) => {
+app.post('/api/admin/crisis-reports', authMiddleware, requireAdmin, (req, res) => {
   if (req.user.role !== 'ADMIN') {
     return res.status(403).json({ error: 'Admin access required' });
   }
@@ -725,7 +1162,7 @@ app.post('/api/admin/crisis-reports', authMiddleware, (req, res) => {
 });
 
 // Validate a crisis report
-app.put('/api/admin/crisis-reports/:id/validate', authMiddleware, (req, res) => {
+app.put('/api/admin/crisis-reports/:id/validate', authMiddleware, requireAdmin, (req, res) => {
   if (req.user.role !== 'ADMIN') {
     return res.status(403).json({ error: 'Admin access required' });
   }
@@ -765,7 +1202,7 @@ app.put('/api/admin/crisis-reports/:id/validate', authMiddleware, (req, res) => 
 // ============================================================
 
 // Agritech beneficiaries list (with optional pending-only filter)
-app.get('/api/agritech/beneficiaries', authMiddleware, (req, res) => {
+app.get('/api/agritech/beneficiaries', authMiddleware, requireAgritech, (req, res) => {
   if (req.user.role !== 'AGRICULTURAL_TECHNOLOGIST') {
     return res.status(403).json({ error: 'Agricultural Technologist access required' });
   }
@@ -823,7 +1260,7 @@ app.get('/api/agritech/beneficiaries', authMiddleware, (req, res) => {
 });
 
 // Agritech validate beneficiary
-app.put('/api/agritech/beneficiaries/:id/validate', authMiddleware, (req, res) => {
+app.put('/api/agritech/beneficiaries/:id/validate', authMiddleware, requireAgritech, (req, res) => {
   if (req.user.role !== 'AGRICULTURAL_TECHNOLOGIST') {
     return res.status(403).json({ error: 'Agricultural Technologist access required' });
   }
@@ -858,7 +1295,7 @@ app.put('/api/agritech/beneficiaries/:id/validate', authMiddleware, (req, res) =
 });
 
 // Agritech reject beneficiary
-app.put('/api/agritech/beneficiaries/:id/reject', authMiddleware, (req, res) => {
+app.put('/api/agritech/beneficiaries/:id/reject', authMiddleware, requireAgritech, (req, res) => {
   if (req.user.role !== 'AGRICULTURAL_TECHNOLOGIST') {
     return res.status(403).json({ error: 'Agricultural Technologist access required' });
   }
@@ -893,7 +1330,7 @@ app.put('/api/agritech/beneficiaries/:id/reject', authMiddleware, (req, res) => 
 });
 
 // Agritech interventions (DA or LGU)
-app.get('/api/agritech/interventions', authMiddleware, (req, res) => {
+app.get('/api/agritech/interventions', authMiddleware, requireAgritech, (req, res) => {
   if (req.user.role !== 'AGRICULTURAL_TECHNOLOGIST') {
     return res.status(403).json({ error: 'Agricultural Technologist access required' });
   }
@@ -941,114 +1378,7 @@ app.get('/api/agritech/interventions', authMiddleware, (req, res) => {
 // Photo upload storage (in-memory; photos kept as metadata only for now)
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
 
-// Agritech create damage report (crisis_reports with GPS + photos)
-app.post('/api/agritech/damage-reports', authMiddleware, upload.array('photos', 5), (req, res) => {
-  if (req.user.role !== 'AGRICULTURAL_TECHNOLOGIST') {
-    return res.status(403).json({ error: 'Agricultural Technologist access required' });
-  }
-
-  const {
-    disaster,
-    barangay,
-    farmerName,
-    beneficiaryId,
-    farmLocation,
-    cropType,
-    cropStage,
-    totalArea,
-    partialArea,
-    latitude,
-    longitude
-  } = req.body;
-
-  if (!disaster || !barangay || !farmerName || !latitude || !longitude) {
-    return res.status(400).json({ error: 'Missing required fields (farmer name, barangay, GPS coordinates)' });
-  }
-
-  // Validate barangay
-  if (!isValidBarangay(barangay)) {
-    return res.status(400).json({ error: getBarangayValidationError() });
-  }
-
-  try {
-    // Resolve beneficiary - use matching beneficiary if provided, otherwise find by name, or create a minimal record
-    let beneficiary = null;
-
-    if (beneficiaryId) {
-      beneficiary = db.prepare('SELECT * FROM beneficiaries WHERE id = ?').get(beneficiaryId);
-    }
-
-    if (!beneficiary) {
-      beneficiary = db.prepare('SELECT * FROM beneficiaries WHERE name = ?').get(farmerName);
-    }
-
-    if (!beneficiary) {
-      const result = db.prepare(`
-        INSERT INTO beneficiaries (first_name, last_name, name, rsbsa_number, barangay, farm_location, crop_type, household, validation_status)
-        VALUES (?, ?, ?, NULL, ?, ?, ?, ?, 'Pending')
-      `).run(
-        farmerName.trim().split(' ')[0] || 'Unknown',
-        farmerName.trim().split(' ').slice(1).join(' ') || farmerName.trim(),
-        farmerName.trim(),
-        barangay,
-        farmLocation || null,
-        cropType || null,
-        '1 member'
-      );
-      beneficiary = db.prepare('SELECT * FROM beneficiaries WHERE id = ?').get(result.lastInsertRowid);
-    }
-
-    // Summarize photo metadata
-    const photoNames = (req.files || []).map((file) => file.originalname);
-
-    const result = db.prepare(`
-      INSERT INTO crisis_reports (
-        beneficiary_id, crisis_type, crisis_date, barangay, farm_location, crop_type, crop_stage,
-        total_area_hectares, damaged_area_hectares, latitude, longitude, photos, remarks, status, created_by
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'For Validation', ?)
-    `).run(
-      beneficiary.id,
-      disaster,
-      new Date().toISOString().split('T')[0],
-      barangay,
-      farmLocation || null,
-      cropType || null,
-      cropStage || null,
-      totalArea ? parseFloat(totalArea) : null,
-      partialArea ? parseFloat(partialArea) : null,
-      parseFloat(latitude),
-      parseFloat(longitude),
-      photoNames.length > 0 ? JSON.stringify(photoNames) : null,
-      `Filed by Agricultural Technologist: ${farmerName}`,
-      req.user.id
-    );
-
-    logAudit({
-      userId: req.user.id,
-      username: req.user.name,
-      userRole: req.user.role,
-      action: 'Filed Disaster Report',
-      module: 'Disaster Reports',
-      recordType: 'crisis_report',
-      recordId: result.lastInsertRowid,
-      recordAffected: `${disaster} - ${barangay}`,
-      description: `Filed ${disaster} damage report for ${farmerName} (${barangay})`
-    });
-
-    res.json({
-      success: true,
-      message: 'Damage report submitted successfully',
-      reportId: result.lastInsertRowid
-    });
-  } catch (error) {
-    console.error('Error creating damage report:', error);
-    res.status(500).json({ error: 'Failed to create damage report' });
-  }
-});
-
-// Agritech list damage reports
-app.get('/api/agritech/damage-reports', authMiddleware, (req, res) => {
+const handleAgritechCrisisReportList = (req, res) => {
   if (req.user.role !== 'AGRICULTURAL_TECHNOLOGIST') {
     return res.status(403).json({ error: 'Agricultural Technologist access required' });
   }
@@ -1080,10 +1410,122 @@ app.get('/api/agritech/damage-reports', authMiddleware, (req, res) => {
       createdAt: r.created_at
     }))
   });
-});
+};
+
+const handleAgritechCrisisReportCreate = (req, res) => {
+  if (req.user.role !== 'AGRICULTURAL_TECHNOLOGIST') {
+    return res.status(403).json({ error: 'Agricultural Technologist access required' });
+  }
+
+  const {
+    disaster,
+    barangay,
+    farmerName,
+    beneficiaryId,
+    farmLocation,
+    cropType,
+    cropStage,
+    totalArea,
+    partialArea,
+    estimatedCost,
+    latitude,
+    longitude
+  } = req.body;
+
+  if (!disaster || !barangay || !farmerName || !latitude || !longitude) {
+    return res.status(400).json({ error: 'Missing required fields (farmer name, barangay, GPS coordinates)' });
+  }
+
+  if (!isValidBarangay(barangay)) {
+    return res.status(400).json({ error: getBarangayValidationError() });
+  }
+
+  try {
+    let beneficiary = null;
+
+    if (beneficiaryId) {
+      beneficiary = db.prepare('SELECT * FROM beneficiaries WHERE id = ?').get(beneficiaryId);
+    }
+
+    if (!beneficiary) {
+      beneficiary = db.prepare('SELECT * FROM beneficiaries WHERE name = ?').get(farmerName);
+    }
+
+    if (!beneficiary) {
+      const result = db.prepare(`
+        INSERT INTO beneficiaries (first_name, last_name, name, rsbsa_number, barangay, farm_location, crop_type, household, created_by, updated_by)
+        VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
+      `).run(
+        farmerName.trim().split(' ')[0] || 'Unknown',
+        farmerName.trim().split(' ').slice(1).join(' ') || farmerName.trim(),
+        farmerName.trim(),
+        barangay,
+        farmLocation || null,
+        cropType || null,
+        '1 member',
+        req.user.id,
+        req.user.id
+      );
+      beneficiary = db.prepare('SELECT * FROM beneficiaries WHERE id = ?').get(result.lastInsertRowid);
+    }
+
+    const photoNames = (req.files || []).map((file) => file.originalname);
+
+    const result = db.prepare(`
+      INSERT INTO crisis_reports (
+        beneficiary_id, crisis_type, crisis_date, barangay, farm_location, crop_type, crop_stage,
+        total_area_hectares, damaged_area_hectares, production_loss_mt, estimated_damage_cost, latitude, longitude, photos, remarks, created_by
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      beneficiary.id,
+      disaster,
+      new Date().toISOString().split('T')[0],
+      barangay,
+      farmLocation || null,
+      cropType || null,
+      cropStage || null,
+      totalArea ? parseFloat(totalArea) : null,
+      partialArea ? parseFloat(partialArea) : null,
+      null,
+      estimatedCost ? parseFloat(estimatedCost) : null,
+      parseFloat(latitude),
+      parseFloat(longitude),
+      photoNames.length > 0 ? JSON.stringify(photoNames) : null,
+      `Filed by Agricultural Technologist: ${farmerName}`,
+      req.user.id
+    );
+
+    logAudit({
+      userId: req.user.id,
+      username: req.user.name,
+      userRole: req.user.role,
+      action: 'Filed Crisis Report',
+      module: 'Crisis Reports',
+      recordType: 'crisis_report',
+      recordId: result.lastInsertRowid,
+      recordAffected: `${disaster} - ${barangay}`,
+      description: `Filed ${disaster} damage report for ${farmerName} (${barangay})`
+    });
+
+    res.json({
+      success: true,
+      message: 'Damage report submitted successfully',
+      reportId: result.lastInsertRowid
+    });
+  } catch (error) {
+    console.error('Error creating damage report:', error);
+    res.status(500).json({ error: 'Failed to create damage report' });
+  }
+};
+
+app.post('/api/agritech/crisis-reports', authMiddleware, requireAgritech, upload.array('photos', 5), handleAgritechCrisisReportCreate);
+app.post('/api/agritech/damage-reports', authMiddleware, requireAgritech, upload.array('photos', 5), handleAgritechCrisisReportCreate);
+app.get('/api/agritech/crisis-reports', authMiddleware, requireAgritech, handleAgritechCrisisReportList);
+app.get('/api/agritech/damage-reports', authMiddleware, requireAgritech, handleAgritechCrisisReportList);
 
 // Audit Trail endpoints - Admin only
-app.get('/api/admin/audit-trail', authMiddleware, (req, res) => {
+app.get('/api/admin/audit-trail', authMiddleware, requireAdmin, (req, res) => {
   if (req.user.role !== 'ADMIN') {
     return res.status(403).json({ error: 'Admin access required' });
   }
@@ -1113,7 +1555,7 @@ app.get('/api/admin/audit-trail', authMiddleware, (req, res) => {
 });
 
 // Reports - available programs and distribution cycles (Admin only)
-app.get('/api/admin/reports/filters', authMiddleware, (req, res) => {
+app.get('/api/admin/reports/filters', authMiddleware, requireAdmin, (req, res) => {
   if (req.user.role !== 'ADMIN') {
     return res.status(403).json({ error: 'Admin access required' });
   }
@@ -1128,7 +1570,7 @@ app.get('/api/admin/reports/filters', authMiddleware, (req, res) => {
 });
 
 // Reports - generate and download report file (Admin only)
-app.get('/api/admin/reports/generate', authMiddleware, async (req, res) => {
+app.get('/api/admin/reports/generate', authMiddleware, requireAdmin, async (req, res) => {
   if (req.user.role !== 'ADMIN') {
     return res.status(403).json({ error: 'Admin access required' });
   }
@@ -1240,7 +1682,7 @@ app.get('/api/beneficiaries/search', authMiddleware, (req, res) => {
 // ------------------------------------------------------------
 // Data Encoder: statistics + pending queue + low stock
 // ------------------------------------------------------------
-app.get('/api/encoding/statistics', authMiddleware, (req, res) => {
+app.get('/api/encoding/statistics', authMiddleware, requireDataEncoder, (req, res) => {
   if (req.user.role !== 'DATA_ENCODER') {
     return res.status(403).json({ success: false, message: 'Data Encoder access required' });
   }
@@ -1278,7 +1720,7 @@ app.get('/api/encoding/statistics', authMiddleware, (req, res) => {
   });
 });
 
-app.get('/api/encoding/pending', authMiddleware, (req, res) => {
+app.get('/api/encoding/pending', authMiddleware, requireDataEncoder, (req, res) => {
   if (req.user.role !== 'DATA_ENCODER') {
     return res.status(403).json({ success: false, message: 'Data Encoder access required' });
   }
@@ -1306,7 +1748,7 @@ app.get('/api/encoding/pending', authMiddleware, (req, res) => {
   res.json({ success: true, queue });
 });
 
-app.get('/api/inventory/low-stock', authMiddleware, (req, res) => {
+app.get('/api/inventory/low-stock', authMiddleware, requireDataEncoder, (req, res) => {
   if (!['ADMIN', 'DATA_ENCODER'].includes(req.user.role)) {
     return res.status(403).json({ success: false, message: 'Access denied' });
   }
@@ -1332,7 +1774,7 @@ app.get('/api/inventory/low-stock', authMiddleware, (req, res) => {
   });
 });
 
-app.get('/api/dashboard/data-encoder', authMiddleware, (req, res) => {
+app.get('/api/dashboard/data-encoder', authMiddleware, requireDataEncoder, (req, res) => {
   if (req.user.role !== 'DATA_ENCODER') {
     return res.status(403).json({ success: false, message: 'Data Encoder access required' });
   }
@@ -1399,65 +1841,173 @@ app.get('/api/dashboard/data-encoder', authMiddleware, (req, res) => {
 // ------------------------------------------------------------
 // Data Encoder beneficiary creation + interventions
 // ------------------------------------------------------------
-app.get('/api/data-encoder/interventions-list', authMiddleware, (req, res) => {
+app.get('/api/data-encoder/interventions-list', authMiddleware, requireDataEncoder, (req, res) => {
   if (req.user.role !== 'DATA_ENCODER') {
     return res.status(403).json({ success: false, message: 'Data Encoder access required' });
   }
 
   const interventionType = req.query.type || 'LGU';
-  const interventions = db.prepare(`
-    SELECT DISTINCT intervention_name
-    FROM interventions
-    WHERE intervention_type = ?
-    ORDER BY intervention_name
-  `).all(interventionType);
-
-  res.json({ success: true, interventions: interventions.map((i) => i.intervention_name) });
-});
-
-app.get('/api/data-encoder/beneficiaries', authMiddleware, (req, res) => {
-  if (req.user.role !== 'DATA_ENCODER') {
-    return res.status(403).json({ success: false, message: 'Data Encoder access required' });
+  
+  // Return predefined interventions based on type
+  let interventions;
+  if (interventionType === 'DA') {
+    interventions = DA_INTERVENTIONS;
+  } else if (interventionType === 'LGU') {
+    interventions = MLGU_INTERVENTIONS;
+  } else {
+    interventions = [];
   }
 
-  const { search } = req.query;
+  res.json({ success: true, interventions: interventions });
+});
+
+// Data Encoder beneficiaries endpoint with pagination and filtering
+app.get('/api/data-encoder/beneficiaries', authMiddleware, requireDataEncoder, (req, res) => {
+  const { 
+    search = '', 
+    barangay = 'All', 
+    interventionType = 'All', 
+    status = 'All',
+    page = 1,
+    limit = 50
+  } = req.query;
+  
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  const limitNum = parseInt(limit);
+  
   let query = `
-    SELECT b.*, GROUP_CONCAT(DISTINCT i.intervention_name) AS intervention
+    SELECT DISTINCT 
+      b.id, b.name, b.rsbsa_number, b.barangay, b.address, b.contact_number,
+      i.intervention_type, i.intervention_name, i.custom_intervention_name, i.status, i.quantity_received
     FROM beneficiaries b
     LEFT JOIN interventions i ON b.id = i.beneficiary_id
     WHERE 1=1
   `;
+  
   const params = [];
-
+  
+  // Search by name, RSBSA, or barangay
   if (search) {
-    query += ' AND (b.name LIKE ? OR b.first_name LIKE ? OR b.last_name LIKE ? OR b.rsbsa_number LIKE ? OR b.barangay LIKE ?)';
-    const searchTerm = `%${search}%`;
-    params.push(searchTerm, searchTerm, searchTerm, searchTerm, searchTerm);
+    query += ` AND (b.name LIKE ? OR b.rsbsa_number LIKE ? OR b.barangay LIKE ?)`;
+    const searchPattern = `%${search}%`;
+    params.push(searchPattern, searchPattern, searchPattern);
   }
-
-  query += ' GROUP BY b.id ORDER BY b.name ASC';
+  
+  // Filter by barangay
+  if (barangay !== 'All') {
+    query += ` AND b.barangay = ?`;
+    params.push(barangay);
+  }
+  
+  // Filter by intervention type
+  if (interventionType !== 'All') {
+    query += ` AND i.intervention_type = ?`;
+    params.push(interventionType);
+  }
+  
+  // Filter by status
+  if (status !== 'All') {
+    query += ` AND i.status = ?`;
+    params.push(status);
+  }
+  
+  // Get total count
+  const countQuery = query.replace('SELECT DISTINCT b.id, b.name, b.rsbsa_number, b.barangay, b.address, b.contact_number, i.intervention_type, i.intervention_name, i.custom_intervention_name, i.status, i.quantity_received', 'SELECT COUNT(DISTINCT b.id)');
+  const totalCount = db.prepare(countQuery).get(...params);
+  
+  // Add pagination
+  query += ` ORDER BY b.created_at DESC LIMIT ? OFFSET ?`;
+  params.push(limitNum, offset);
+  
   const beneficiaries = db.prepare(query).all(...params);
-
+  
+  // Format intervention display name and RSBSA display
+  const formattedBeneficiaries = beneficiaries.map(b => ({
+    ...b,
+    intervention: b.custom_intervention_name || b.intervention_name || 'None',
+    rsbsaNumber: b.intervention_type === 'DA' ? (b.rsbsa_number || 'N/A') : 'N/A',
+    quantityReceived: b.quantity_received || null
+  }));
+  
   res.json({
-    success: true,
-    beneficiaries: beneficiaries.map((b) => ({
-      id: b.id,
-      name: b.name,
-      firstName: b.first_name,
-      lastName: b.last_name,
-      rsbsaNumber: b.rsbsa_number,
-      barangay: b.barangay,
-      household: b.household,
-      intervention: b.intervention || 'None Assigned'
-    }))
+    beneficiaries: formattedBeneficiaries,
+    pagination: {
+      total: totalCount.count,
+      page: parseInt(page),
+      limit: limitNum,
+      totalPages: Math.ceil(totalCount.count / limitNum)
+    }
   });
 });
 
-app.post('/api/data-encoder/add-beneficiary', authMiddleware, (req, res) => {
-  if (req.user.role !== 'DATA_ENCODER') {
-    return res.status(403).json({ success: false, message: 'Data Encoder access required' });
+// Update beneficiary intervention status endpoint
+app.put('/api/data-encoder/beneficiaries/:id/intervention', authMiddleware, requireDataEncoder, (req, res) => {
+  const { id } = req.params;
+  const { status, customInterventionName, quantityReceived } = req.body;
+  
+  try {
+    // Get current intervention record
+    const currentIntervention = db.prepare(`
+      SELECT * FROM interventions 
+      WHERE beneficiary_id = ? 
+      ORDER BY created_at DESC 
+      LIMIT 1
+    `).get(id);
+    
+    if (!currentIntervention) {
+      return res.status(404).json({ error: 'Intervention not found' });
+    }
+    
+    // Update intervention
+    const updateFields = [];
+    const updateParams = [];
+    
+    if (status) {
+      updateFields.push('status = ?');
+      updateParams.push(status);
+    }
+    
+    if (customInterventionName !== undefined) {
+      updateFields.push('custom_intervention_name = ?');
+      updateParams.push(customInterventionName);
+    }
+    
+    if (quantityReceived !== undefined) {
+      updateFields.push('quantity_received = ?');
+      updateParams.push(quantityReceived);
+    }
+    
+    if (updateFields.length > 0) {
+      updateParams.push(id);
+      db.prepare(`
+        UPDATE interventions 
+        SET ${updateFields.join(', ')}
+        WHERE id = ?
+      `).run(...updateParams);
+    }
+    
+    logAudit({
+      userId: req.user.id,
+      username: req.user.name,
+      userRole: req.user.role,
+      action: 'Updated Intervention Status',
+      module: 'Data Encoder',
+      recordType: 'intervention',
+      recordId: currentIntervention.id,
+      description: `Updated beneficiary ${id} intervention status to ${status || currentIntervention.status}`
+    });
+    
+    res.json({
+      success: true,
+      message: 'Intervention updated successfully'
+    });
+  } catch (error) {
+    console.error('Error updating intervention:', error);
+    res.status(500).json({ error: 'Failed to update intervention' });
   }
+});
 
+app.post('/api/data-encoder/add-beneficiary', authMiddleware, requireDataEncoder, (req, res) => {
   const {
     firstName,
     middleName,
@@ -1469,17 +2019,35 @@ app.post('/api/data-encoder/add-beneficiary', authMiddleware, (req, res) => {
     farmLocation,
     cropType,
     rsbsaNumber,
+    beneficiaryType,
     lguIntervention,
+    customInterventionName,
     interventionStatus,
     interventionDate,
-    household
+    quantityReceived
   } = req.body;
+
+  // Determine intervention type based on intervention name
+  let interventionType = 'LGU';
+  if (DA_INTERVENTIONS.includes(lguIntervention)) {
+    interventionType = 'DA';
+  } else if (MLGU_INTERVENTIONS.includes(lguIntervention)) {
+    interventionType = 'LGU';
+  }
+
+  const normalizedBeneficiaryType = (beneficiaryType || interventionType || 'LGU').toUpperCase();
+  if (!['DA', 'LGU'].includes(normalizedBeneficiaryType)) {
+    return res.status(400).json({ success: false, message: 'Invalid beneficiary type' });
+  }
+
+  if (normalizedBeneficiaryType === 'DA' && (!rsbsaNumber || !String(rsbsaNumber).trim())) {
+    return res.status(400).json({ success: false, message: 'RSBSA Number is required for DA beneficiaries.' });
+  }
 
   if (!firstName || !lastName || !birthdate || !barangay || !lguIntervention) {
     return res.status(400).json({ success: false, message: 'Missing required fields' });
   }
 
-  // Validate barangay
   if (!isValidBarangay(barangay)) {
     return res.status(400).json({ success: false, message: getBarangayValidationError() });
   }
@@ -1505,52 +2073,30 @@ app.post('/api/data-encoder/add-beneficiary', authMiddleware, (req, res) => {
       beneficiaryId = beneficiary.id;
       db.prepare(`
         UPDATE beneficiaries
-        SET address = ?, contact_number = ?, farm_location = ?, crop_type = ?, household = ?, updated_by = ?
+        SET address = ?, contact_number = ?, farm_location = ?, crop_type = ?, beneficiary_type = ?, rsbsa_number = COALESCE(?, rsbsa_number), updated_by = ?
         WHERE id = ?
-      `).run(address, contactNumber, farmLocation, cropType, household || beneficiary.household, req.user.id, beneficiaryId);
+      `).run(address, contactNumber, farmLocation, cropType, normalizedBeneficiaryType, rsbsaNumber || null, req.user.id, beneficiaryId);
     } else {
       const result = db.prepare(`
-        INSERT INTO beneficiaries (
-          first_name, middle_name, last_name, name, rsbsa_number, birthdate, age, address, barangay,
-          contact_number, farm_location, crop_type, household, created_by, updated_by
-        )
+        INSERT INTO beneficiaries (first_name, middle_name, last_name, name, beneficiary_type, rsbsa_number, birthdate, age, address, barangay, contact_number, farm_location, crop_type, household, created_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        firstName,
-        middleName,
-        lastName,
-        fullName,
-        rsbsaNumber || null,
-        birthdate,
-        age,
-        address,
-        barangay,
-        contactNumber,
-        farmLocation,
-        cropType,
-        household || '1 member',
-        req.user.id,
-        req.user.id
-      );
+      `).run(firstName, middleName, lastName, fullName, normalizedBeneficiaryType, rsbsaNumber || null, birthdate, age, address, barangay, contactNumber, farmLocation, cropType, '1 member', req.user.id);
 
       beneficiaryId = result.lastInsertRowid;
     }
 
     const existingIntervention = db.prepare(`
       SELECT * FROM interventions
-      WHERE beneficiary_id = ? AND intervention_type = 'LGU' AND intervention_name = ?
-    `).get(beneficiaryId, lguIntervention);
+      WHERE beneficiary_id = ? AND intervention_type = ? AND intervention_name = ?
+    `).get(beneficiaryId, interventionType, lguIntervention);
 
     if (!existingIntervention) {
       db.prepare(`
-        INSERT INTO interventions (beneficiary_id, intervention_type, intervention_name, status, intervention_date)
-        VALUES (?, 'LGU', ?, ?, ?)
-      `).run(
-        beneficiaryId,
-        lguIntervention,
-        interventionStatus || 'Unclaimed',
-        interventionDate || new Date().toISOString().split('T')[0]
-      );
+        INSERT INTO interventions (beneficiary_id, intervention_type, intervention_name, custom_intervention_name, status, quantity_received, intervention_date)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(beneficiaryId, interventionType, lguIntervention, customInterventionName || null, interventionStatus || 'Unclaimed', quantityReceived || null, interventionDate || new Date().toISOString().split('T')[0]);
+    } else {
+      return res.status(400).json({ success: false, message: `This beneficiary already has this ${interventionType} intervention` });
     }
 
     logAudit({
@@ -1578,17 +2124,14 @@ app.post('/api/data-encoder/add-beneficiary', authMiddleware, (req, res) => {
   }
 });
 
-app.get('/api/data-encoder/intervention-records', authMiddleware, (req, res) => {
-  if (req.user.role !== 'DATA_ENCODER') {
-    return res.status(403).json({ success: false, message: 'Data Encoder access required' });
-  }
-
+// Data Encoder intervention records endpoint
+app.get('/api/data-encoder/intervention-records', authMiddleware, requireDataEncoder, (req, res) => {
   const { q } = req.query;
   let query = `
-    SELECT i.id, i.intervention_type, i.intervention_name, i.status, i.intervention_date,
+    SELECT i.id, i.intervention_type, i.intervention_name, i.custom_intervention_name, i.status, i.quantity_received, i.intervention_date,
            b.id AS beneficiary_id, b.name, b.rsbsa_number, b.barangay
     FROM interventions i
-    JOIN beneficiaries b ON b.id = i.beneficiary_id
+    JOIN beneficiaries b ON i.beneficiary_id = b.id
     WHERE 1=1
   `;
   const params = [];
@@ -1607,8 +2150,9 @@ app.get('/api/data-encoder/intervention-records', authMiddleware, (req, res) => 
     records: rows.map((row) => ({
       id: row.id,
       type: row.intervention_type,
-      intervention: row.intervention_name,
+      intervention: row.custom_intervention_name || row.intervention_name,
       status: row.status,
+      quantityReceived: row.quantity_received,
       date: row.intervention_date,
       beneficiaryId: row.beneficiary_id,
       beneficiaryName: row.name,
@@ -1619,9 +2163,9 @@ app.get('/api/data-encoder/intervention-records', authMiddleware, (req, res) => 
 });
 
 // ------------------------------------------------------------
-// Data Encoder disaster reports
+// Data Encoder crisis reports
 // ------------------------------------------------------------
-app.get('/api/data-encoder/disaster-reports', authMiddleware, (req, res) => {
+const handleDataEncoderCrisisReportList = (req, res) => {
   if (req.user.role !== 'DATA_ENCODER') {
     return res.status(403).json({ success: false, message: 'Data Encoder access required' });
   }
@@ -1654,9 +2198,9 @@ app.get('/api/data-encoder/disaster-reports', authMiddleware, (req, res) => {
       createdAt: r.created_at
     }))
   });
-});
+};
 
-app.post('/api/data-encoder/disaster-reports', authMiddleware, upload.array('photos', 5), (req, res) => {
+const handleDataEncoderCrisisReportCreate = (req, res) => {
   if (req.user.role !== 'DATA_ENCODER') {
     return res.status(403).json({ success: false, message: 'Data Encoder access required' });
   }
@@ -1671,6 +2215,7 @@ app.post('/api/data-encoder/disaster-reports', authMiddleware, upload.array('pho
     cropStage,
     totalArea,
     partialArea,
+    estimatedCost,
     latitude,
     longitude
   } = req.body;
@@ -1679,7 +2224,6 @@ app.post('/api/data-encoder/disaster-reports', authMiddleware, upload.array('pho
     return res.status(400).json({ success: false, message: 'Missing required fields (farmer name, barangay, GPS coordinates)' });
   }
 
-  // Validate barangay
   if (!isValidBarangay(barangay)) {
     return res.status(400).json({ success: false, message: getBarangayValidationError() });
   }
@@ -1698,8 +2242,8 @@ app.post('/api/data-encoder/disaster-reports', authMiddleware, upload.array('pho
     if (!beneficiary) {
       const splitName = farmerName.trim().split(' ');
       const generated = db.prepare(`
-        INSERT INTO beneficiaries (first_name, last_name, name, barangay, farm_location, crop_type, household, validation_status, created_by, updated_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending', ?, ?)
+        INSERT INTO beneficiaries (first_name, last_name, name, barangay, farm_location, crop_type, household, created_by, updated_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         splitName[0] || 'Unknown',
         splitName.slice(1).join(' ') || splitName[0] || 'Unknown',
@@ -1719,9 +2263,9 @@ app.post('/api/data-encoder/disaster-reports', authMiddleware, upload.array('pho
     const result = db.prepare(`
       INSERT INTO crisis_reports (
         beneficiary_id, crisis_type, crisis_date, barangay, farm_location, crop_type, crop_stage,
-        total_area_hectares, damaged_area_hectares, latitude, longitude, photos, remarks, status, created_by
+        total_area_hectares, damaged_area_hectares, production_loss_mt, estimated_damage_cost, latitude, longitude, photos, remarks, created_by
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'For Validation', ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       beneficiary.id,
       disaster,
@@ -1732,6 +2276,8 @@ app.post('/api/data-encoder/disaster-reports', authMiddleware, upload.array('pho
       cropStage || null,
       totalArea ? parseFloat(totalArea) : null,
       partialArea ? parseFloat(partialArea) : null,
+      null,
+      estimatedCost ? parseFloat(estimatedCost) : null,
       parseFloat(latitude),
       parseFloat(longitude),
       photoNames.length > 0 ? JSON.stringify(photoNames) : null,
@@ -1743,8 +2289,8 @@ app.post('/api/data-encoder/disaster-reports', authMiddleware, upload.array('pho
       userId: req.user.id,
       username: req.user.name,
       userRole: req.user.role,
-      action: 'Filed Disaster Report',
-      module: 'Data Encoder',
+      action: 'Filed Crisis Report',
+      module: 'Crisis Reports',
       recordType: 'crisis_report',
       recordId: result.lastInsertRowid,
       recordAffected: `${disaster} - ${barangay}`,
@@ -1756,14 +2302,19 @@ app.post('/api/data-encoder/disaster-reports', authMiddleware, upload.array('pho
     console.error('Data Encoder damage report error:', error);
     res.status(500).json({ success: false, message: 'Failed to create damage report' });
   }
-});
+};
+
+app.get('/api/data-encoder/crisis-reports', authMiddleware, requireDataEncoder, handleDataEncoderCrisisReportList);
+app.get('/api/data-encoder/disaster-reports', authMiddleware, requireDataEncoder, handleDataEncoderCrisisReportList);
+app.post('/api/data-encoder/crisis-reports', authMiddleware, requireDataEncoder, upload.array('photos', 5), handleDataEncoderCrisisReportCreate);
+app.post('/api/data-encoder/disaster-reports', authMiddleware, requireDataEncoder, upload.array('photos', 5), handleDataEncoderCrisisReportCreate);
 
 // ------------------------------------------------------------
 // Data Encoder Excel Import (preview + confirm)
 // ------------------------------------------------------------
 const excelUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
 
-app.post('/api/encoding/excel/preview', authMiddleware, excelUpload.single('file'), (req, res) => {
+app.post('/api/encoding/excel/preview', authMiddleware, requireDataEncoder, excelUpload.single('file'), (req, res) => {
   if (req.user.role !== 'DATA_ENCODER') {
     return res.status(403).json({ success: false, message: 'Data Encoder access required' });
   }
@@ -1772,6 +2323,7 @@ app.post('/api/encoding/excel/preview', authMiddleware, excelUpload.single('file
     return res.status(400).json({ success: false, message: 'Excel file is required' });
   }
 
+  const importType = getImportTypeFromRequest(req);
   const fileName = req.file.originalname || 'upload.xlsx';
   const lower = fileName.toLowerCase();
   if (!lower.endsWith('.xlsx') && !lower.endsWith('.xls')) {
@@ -1793,101 +2345,46 @@ app.post('/api/encoding/excel/preview', authMiddleware, excelUpload.single('file
       return res.status(400).json({ success: false, message: 'Uploaded sheet is empty' });
     }
 
-    const headers = rows[0].map((header) => String(header || '').trim().toLowerCase());
-    const missingColumns = EXCEL_REQUIRED_COLUMNS.filter((required) => !headers.includes(required));
-
-    if (missingColumns.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required columns in Excel file',
-        missingColumns
-      });
-    }
-
+    const rawHeaders = rows[0].map((header) => String(header || '').trim());
     const rowsByHeader = rows.slice(1).map((row) => {
-      const mapped = {};
-      headers.forEach((header, index) => {
-        mapped[header] = row[index] ?? '';
+      const mapped = { line: 0 };
+      rawHeaders.forEach((header, index) => {
+        const key = String(header || '').trim();
+        mapped[key] = row[index] ?? '';
       });
       return mapped;
     });
 
-    const seenKeys = new Set();
     const preview = [];
     const errors = [];
+    const schema = getExcelSchemaForImportType(importType);
 
     rowsByHeader.forEach((row, index) => {
       const line = index + 2;
-      const firstName = String(row.first_name || '').trim();
-      const middleName = String(row.middle_name || '').trim();
-      const lastName = String(row.last_name || '').trim();
-      const barangay = String(row.barangay || '').trim();
-      const rsbsaNumber = String(row.rsbsa_number || '').trim();
-      const birthdateRaw = row.birthdate;
-      const lguIntervention = String(row.lgu_intervention || '').trim();
-      const contactNumber = String(row.contact_number || '').trim();
+      const normalizedRow = { line };
 
-      const rowIssues = [];
+      rawHeaders.forEach((header) => {
+        normalizedRow[header] = row[header] ?? '';
+      });
 
-      if (!firstName) rowIssues.push('Missing first_name');
-      if (!lastName) rowIssues.push('Missing last_name');
-      if (!barangay) rowIssues.push('Missing barangay');
-      if (barangay && !isValidBarangay(barangay)) rowIssues.push('Invalid barangay - must be one of the 16 official barangays');
-      if (!birthdateRaw) rowIssues.push('Missing birthdate');
-      if (!lguIntervention) rowIssues.push('Missing lgu_intervention');
+      const farmerName = String(getExcelRowValue(row, schema.aliases.farmer_name || ['farmer_name']) || '').trim();
+      const barangay = String(getExcelRowValue(row, schema.aliases.barangay || ['barangay']) || '').trim();
+      const crisisType = String(getExcelRowValue(row, schema.aliases.crisis_type || ['crisis_type']) || '').trim();
+      const firstName = String(getExcelRowValue(row, ['first_name', 'first name']) || '').trim();
+      const lastName = String(getExcelRowValue(row, ['last_name', 'last name']) || '').trim();
+      const birthdate = String(getExcelRowValue(row, ['birthdate']) || '').trim();
+      const lguIntervention = String(getExcelRowValue(row, ['lgu_intervention', 'lgu intervention', 'intervention']) || '').trim();
 
-      const parsedBirthdate = birthdateRaw ? new Date(birthdateRaw) : null;
-      const age = parsedBirthdate ? calculateAgeFromBirthdate(parsedBirthdate.toISOString()) : null;
+      normalizedRow.farmerName = farmerName || `${firstName} ${lastName}`.trim() || '';
+      normalizedRow.barangay = barangay || normalizedRow.barangay || '';
+      normalizedRow.crisisType = crisisType || 'Other Agricultural Crisis';
+      normalizedRow.firstName = firstName;
+      normalizedRow.lastName = lastName;
+      normalizedRow.birthdate = birthdate;
+      normalizedRow.lguIntervention = lguIntervention;
+      normalizedRow.issues = [];
 
-      if (parsedBirthdate && Number.isNaN(parsedBirthdate.getTime())) {
-        rowIssues.push('Invalid birthdate value');
-      }
-      if (age != null && age < 18) {
-        rowIssues.push('Beneficiary must be 18 years old or above');
-      }
-
-      const duplicateKey = rsbsaNumber || `${firstName.toLowerCase()}-${lastName.toLowerCase()}-${barangay.toLowerCase()}`;
-      if (seenKeys.has(duplicateKey)) {
-        rowIssues.push('Duplicate record within upload file');
-      } else {
-        seenKeys.add(duplicateKey);
-      }
-
-      if (rsbsaNumber) {
-        const existing = db.prepare('SELECT id FROM beneficiaries WHERE rsbsa_number = ?').get(rsbsaNumber);
-        if (existing) {
-          rowIssues.push('Duplicate RSBSA number already exists in database');
-        }
-      }
-
-      if (contactNumber && !/^09\d{2}-\d{3}-\d{4}$/.test(contactNumber)) {
-        rowIssues.push('Invalid contact_number format (expected 09XX-XXX-XXXX)');
-      }
-
-      const normalized = {
-        firstName,
-        middleName,
-        lastName,
-        birthdate: parsedBirthdate && !Number.isNaN(parsedBirthdate.getTime())
-          ? parsedBirthdate.toISOString().split('T')[0]
-          : '',
-        address: String(row.address || '').trim(),
-        barangay,
-        contactNumber,
-        farmLocation: String(row.farm_location || '').trim(),
-        cropType: String(row.crop_type || '').trim(),
-        rsbsaNumber: rsbsaNumber || null,
-        lguIntervention,
-        interventionStatus: String(row.intervention_status || '').trim() || 'Unclaimed',
-        interventionDate: String(row.intervention_date || '').trim() || new Date().toISOString().split('T')[0],
-        household: String(row.household || '').trim() || '1 member'
-      };
-
-      if (rowIssues.length > 0) {
-        errors.push({ line, issues: rowIssues, row: normalized });
-      }
-
-      preview.push({ line, ...normalized, issues: rowIssues });
+      preview.push(normalizedRow);
     });
 
     const previewToken = randomUUID();
@@ -1895,8 +2392,10 @@ app.post('/api/encoding/excel/preview', authMiddleware, excelUpload.single('file
       createdAt: Date.now(),
       userId: req.user.id,
       fileName,
-      headers,
-      preview
+      headers: rawHeaders,
+      preview,
+      importType,
+      previewType: importType
     });
 
     cleanupExpiredExcelPreviews();
@@ -1917,7 +2416,7 @@ app.post('/api/encoding/excel/preview', authMiddleware, excelUpload.single('file
       success: true,
       message: 'Preview generated',
       previewToken,
-      headers,
+      headers: rawHeaders,
       preview,
       errors,
       summary: {
@@ -1932,7 +2431,7 @@ app.post('/api/encoding/excel/preview', authMiddleware, excelUpload.single('file
   }
 });
 
-app.post('/api/encoding/excel/confirm', authMiddleware, (req, res) => {
+app.post('/api/encoding/excel/confirm', authMiddleware, requireDataEncoder, (req, res) => {
   if (req.user.role !== 'DATA_ENCODER') {
     return res.status(403).json({ success: false, message: 'Data Encoder access required' });
   }
@@ -1957,16 +2456,19 @@ app.post('/api/encoding/excel/confirm', authMiddleware, (req, res) => {
     return res.status(400).json({ success: false, message: 'No valid rows to import. Fix errors and upload again.' });
   }
 
+  const importType = cached.importType || EXCEL_IMPORT_TYPES.BENEFICIARY;
   const insertBeneficiary = db.prepare(`
     INSERT INTO beneficiaries (
-      first_name, middle_name, last_name, name, rsbsa_number, birthdate, age, address, barangay,
+      first_name, middle_name, last_name, name, beneficiary_type, rsbsa_number, birthdate, age, address, barangay,
       contact_number, farm_location, crop_type, household, created_by, updated_by
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  const insertIntervention = db.prepare(`
-    INSERT INTO interventions (beneficiary_id, intervention_type, intervention_name, status, intervention_date)
-    VALUES (?, 'LGU', ?, ?, ?)
+  const insertCrisisReport = db.prepare(`
+    INSERT INTO crisis_reports (
+      beneficiary_id, crisis_type, crisis_date, barangay, farm_location, crop_type, crop_stage,
+      total_area_hectares, damaged_area_hectares, production_loss_mt, estimated_damage_cost, latitude, longitude, photos, remarks, status, created_by
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   let imported = 0;
@@ -1974,6 +2476,100 @@ app.post('/api/encoding/excel/confirm', authMiddleware, (req, res) => {
 
   const tx = db.transaction(() => {
     for (const row of validRows) {
+      if (importType === EXCEL_IMPORT_TYPES.CRISIS_REPORT) {
+        const farmerName = String(row.farmerName || row.farmer_name || row.beneficiaryName || row.beneficiary || `${row.firstName || ''} ${row.lastName || ''}`.trim() || '').trim();
+        const barangay = String(row.barangay || '').trim();
+        const crisisType = String(row.crisisType || row.crisis_type || 'Other Agricultural Crisis').trim() || 'Other Agricultural Crisis';
+        const normalizedCrisisType = ['Typhoon', 'Drought / El Niño', 'Flood', 'Earthquake', 'Pest and Disease', 'Water Crisis', 'Other Agricultural Crisis'].includes(crisisType)
+          ? crisisType
+          : 'Other Agricultural Crisis';
+        const crisisDate = String(row.crisisDate || row.crisis_date || new Date().toISOString().split('T')[0]).trim() || new Date().toISOString().split('T')[0];
+        const farmLocation = String(row.farmLocation || row.farm_location || '').trim();
+        const cropType = String(row.cropType || row.crop_type || '').trim();
+        const cropStage = String(row.cropStage || row.crop_stage || '').trim();
+        const totalArea = row.totalArea ?? row.total_area_hectares ?? row.total_area ?? null;
+        const damagedArea = row.damagedArea ?? row.damaged_area_hectares ?? row.damaged_area ?? null;
+        const productionLossMt = row.productionLossMt ?? row.production_loss_mt ?? row.productionLoss ?? null;
+        const estimatedDamageCost = row.estimatedDamageCost ?? row.estimated_damage_cost ?? row.estimatedCost ?? null;
+        const latitude = row.latitude ?? null;
+        const longitude = row.longitude ?? null;
+        const remarks = row.remarks ?? row.notes ?? null;
+        const status = String(row.status || 'For Validation').trim() || 'For Validation';
+
+        if (!barangay) {
+          skipped.push({ line: row.line, reason: 'Barangay is required' });
+          continue;
+        }
+
+        let beneficiary = null;
+        if (row.rsbsaNumber) {
+          beneficiary = db.prepare('SELECT * FROM beneficiaries WHERE rsbsa_number = ?').get(String(row.rsbsaNumber).trim());
+        }
+        if (!beneficiary && farmerName) {
+          beneficiary = db.prepare('SELECT * FROM beneficiaries WHERE name = ?').get(farmerName);
+        }
+
+        let fullName = farmerName || `${row.firstName || ''} ${row.lastName || ''}`.trim() || 'Unknown Farmer';
+        if (!fullName || fullName === 'Unknown Farmer') {
+          fullName = `${row.firstName || row.first_name || ''} ${row.lastName || row.last_name || ''}`.trim() || 'Unknown Farmer';
+        }
+        if (!beneficiary) {
+          const splitName = fullName.split(/\s+/).filter(Boolean);
+          const firstName = splitName[0] || 'Unknown';
+          const lastName = splitName.slice(1).join(' ') || 'Unknown';
+          const beneficiaryResult = insertBeneficiary.run(
+            firstName,
+            '',
+            lastName,
+            fullName,
+            'DA',
+            row.rsbsaNumber ? String(row.rsbsaNumber).trim() : null,
+            crisisDate,
+            calculateAgeFromBirthdate(crisisDate) ?? 18,
+            '',
+            barangay,
+            '',
+            farmLocation,
+            cropType,
+            '1 member',
+            req.user.id,
+            req.user.id
+          );
+          beneficiary = db.prepare('SELECT * FROM beneficiaries WHERE id = ?').get(beneficiaryResult.lastInsertRowid);
+        }
+
+        insertCrisisReport.run(
+          beneficiary.id,
+          normalizedCrisisType,
+          crisisDate,
+          barangay,
+          farmLocation || null,
+          cropType || null,
+          cropStage || null,
+          totalArea !== null && totalArea !== undefined && totalArea !== '' ? parseFloat(totalArea) : null,
+          damagedArea !== null && damagedArea !== undefined && damagedArea !== '' ? parseFloat(damagedArea) : null,
+          productionLossMt !== null && productionLossMt !== undefined && productionLossMt !== '' ? parseFloat(productionLossMt) : null,
+          estimatedDamageCost !== null && estimatedDamageCost !== undefined && estimatedDamageCost !== '' ? parseFloat(estimatedDamageCost) : null,
+          latitude !== null && latitude !== undefined && latitude !== '' ? parseFloat(latitude) : null,
+          longitude !== null && longitude !== undefined && longitude !== '' ? parseFloat(longitude) : null,
+          null,
+          remarks || null,
+          status,
+          req.user.id
+        );
+
+        imported++;
+        continue;
+      }
+
+      const beneficiaryType = String(row.beneficiaryType || '').trim().toUpperCase() ||
+        (DA_INTERVENTIONS.includes(row.lguIntervention) ? 'DA' : 'LGU');
+
+      const insertIntervention = db.prepare(`
+        INSERT INTO interventions (beneficiary_id, intervention_type, intervention_name, status, intervention_date)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+
       if (row.rsbsaNumber) {
         const exists = db.prepare('SELECT id FROM beneficiaries WHERE rsbsa_number = ?').get(row.rsbsaNumber);
         if (exists) {
@@ -1988,13 +2584,19 @@ app.post('/api/encoding/excel/confirm', authMiddleware, (req, res) => {
         continue;
       }
 
+      if (beneficiaryType === 'DA' && (!row.rsbsaNumber || !String(row.rsbsaNumber).trim())) {
+        skipped.push({ line: row.line, reason: 'RSBSA number is required for DA beneficiaries' });
+        continue;
+      }
+
       const fullName = `${row.firstName} ${row.middleName || ''} ${row.lastName}`.trim();
       const result = insertBeneficiary.run(
         row.firstName,
         row.middleName,
         row.lastName,
         fullName,
-        row.rsbsaNumber,
+        beneficiaryType,
+        row.rsbsaNumber || null,
         row.birthdate,
         age,
         row.address,
@@ -2009,6 +2611,7 @@ app.post('/api/encoding/excel/confirm', authMiddleware, (req, res) => {
 
       insertIntervention.run(
         result.lastInsertRowid,
+        beneficiaryType,
         row.lguIntervention,
         row.interventionStatus || 'Unclaimed',
         row.interventionDate || new Date().toISOString().split('T')[0]
@@ -2063,6 +2666,512 @@ app.use((err, req, res, next) => {
     });
   }
   return next(err);
+});
+
+// =============================================================
+// DISTRIBUTION SCHEDULES
+// =============================================================
+
+// Get all distribution schedules (admin and agritech)
+app.get('/api/distribution-schedules', authMiddleware, (req, res) => {
+  const { source, status, page = 1, limit = 50 } = req.query;
+  
+  let query = `
+    SELECT ds.*, 
+           COUNT(sb.id) as beneficiary_count,
+           u.name as created_by_name
+    FROM distribution_schedules ds
+    LEFT JOIN schedule_beneficiaries sb ON ds.id = sb.schedule_id
+    LEFT JOIN users u ON ds.created_by = u.id
+    WHERE 1=1
+  `;
+  const params = [];
+  
+  if (source && source !== 'All') {
+    query += ' AND ds.source = ?';
+    params.push(source);
+  }
+  
+  if (status && status !== 'All') {
+    query += ' AND ds.status = ?';
+    params.push(status);
+  }
+  
+  query += ' GROUP BY ds.id ORDER BY ds.distribution_date DESC, ds.created_at DESC';
+  
+  const schedules = db.prepare(query).all(...params);
+  
+  res.json({
+    success: true,
+    schedules: schedules.map(s => ({
+      id: s.id,
+      scheduleName: s.schedule_name,
+      interventionType: s.intervention_type,
+      interventionName: s.intervention_name,
+      customInterventionName: s.custom_intervention_name,
+      source: s.source,
+      distributionDate: s.distribution_date,
+      status: s.status,
+      beneficiaryCount: s.beneficiary_count,
+      createdBy: s.created_by_name,
+      createdAt: s.created_at
+    }))
+  });
+});
+
+// Create distribution schedule (admin only)
+app.post('/api/distribution-schedules', authMiddleware, requireAdmin, (req, res) => {
+  const {
+    scheduleName,
+    interventionType,
+    interventionName,
+    customInterventionName,
+    source,
+    distributionDate,
+    status = 'Scheduled'
+  } = req.body;
+  
+  if (!scheduleName || !interventionType || !source || !distributionDate) {
+    return res.status(400).json({ success: false, message: 'Missing required fields' });
+  }
+  
+  if (!['DA', 'LGU'].includes(interventionType)) {
+    return res.status(400).json({ success: false, message: 'Invalid intervention type' });
+  }
+  
+  if (!['DA', 'MLGU'].includes(source)) {
+    return res.status(400).json({ success: false, message: 'Invalid source' });
+  }
+  
+  if (!['Scheduled', 'Active', 'Completed', 'Cancelled'].includes(status)) {
+    return res.status(400).json({ success: false, message: 'Invalid status' });
+  }
+  
+  try {
+    const result = db.prepare(`
+      INSERT INTO distribution_schedules (schedule_name, intervention_type, intervention_name, custom_intervention_name, source, distribution_date, status, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(scheduleName, interventionType, interventionName, customInterventionName || null, source, distributionDate, status, req.user.id);
+    
+    logAudit({
+      userId: req.user.id,
+      username: req.user.name,
+      userRole: req.user.role,
+      action: 'Created Distribution Schedule',
+      module: 'Distribution Schedules',
+      recordType: 'distribution_schedule',
+      recordId: result.lastInsertRowid,
+      recordAffected: scheduleName,
+      description: `Created ${source} distribution schedule for ${interventionName}`
+    });
+    
+    res.json({
+      success: true,
+      message: 'Distribution schedule created successfully',
+      scheduleId: result.lastInsertRowid
+    });
+  } catch (error) {
+    console.error('Error creating distribution schedule:', error);
+    res.status(500).json({ success: false, message: 'Failed to create distribution schedule' });
+  }
+});
+
+// Update distribution schedule status (admin only)
+app.put('/api/distribution-schedules/:id/status', authMiddleware, requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  
+  if (!['Scheduled', 'Active', 'Completed', 'Cancelled'].includes(status)) {
+    return res.status(400).json({ success: false, message: 'Invalid status' });
+  }
+  
+  try {
+    const schedule = db.prepare('SELECT * FROM distribution_schedules WHERE id = ?').get(id);
+    if (!schedule) {
+      return res.status(404).json({ success: false, message: 'Distribution schedule not found' });
+    }
+    
+    db.prepare('UPDATE distribution_schedules SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(status, id);
+    
+    logAudit({
+      userId: req.user.id,
+      username: req.user.name,
+      userRole: req.user.role,
+      action: 'Updated Distribution Schedule Status',
+      module: 'Distribution Schedules',
+      recordType: 'distribution_schedule',
+      recordId: parseInt(id),
+      recordAffected: schedule.schedule_name,
+      description: `Updated status to ${status}`
+    });
+    
+    res.json({ success: true, message: 'Distribution schedule status updated' });
+  } catch (error) {
+    console.error('Error updating distribution schedule:', error);
+    res.status(500).json({ success: false, message: 'Failed to update distribution schedule' });
+  }
+});
+
+// Get beneficiaries for a specific schedule
+app.get('/api/distribution-schedules/:id/beneficiaries', authMiddleware, (req, res) => {
+  const { id } = req.params;
+  const { status } = req.query;
+  
+  let query = `
+    SELECT sb.*, b.name as beneficiary_name, b.rsbsa_number, b.barangay
+    FROM schedule_beneficiaries sb
+    JOIN beneficiaries b ON sb.beneficiary_id = b.id
+    WHERE sb.schedule_id = ?
+  `;
+  const params = [id];
+  
+  if (status && status !== 'All') {
+    query += ' AND sb.distribution_status = ?';
+    params.push(status);
+  }
+  
+  query += ' ORDER BY b.name ASC';
+  
+  const beneficiaries = db.prepare(query).all(...params);
+  
+  res.json({
+    success: true,
+    beneficiaries: beneficiaries.map(b => ({
+      id: b.id,
+      beneficiaryId: b.beneficiary_id,
+      beneficiaryName: b.beneficiary_name,
+      rsbsaNumber: b.rsbsa_number,
+      barangay: b.barangay,
+      quantityAllocated: b.quantity_allocated,
+      quantityDistributed: b.quantity_distributed,
+      distributionStatus: b.distribution_status,
+      distributedAt: b.distributed_at,
+      remarks: b.remarks
+    }))
+  });
+});
+
+// Add beneficiaries to distribution schedule
+app.post('/api/distribution-schedules/:id/beneficiaries', authMiddleware, (req, res) => {
+  const { id } = req.params;
+  const { beneficiaryIds, quantityAllocated } = req.body;
+  
+  if (!Array.isArray(beneficiaryIds) || beneficiaryIds.length === 0) {
+    return res.status(400).json({ success: false, message: 'Beneficiary IDs required' });
+  }
+  
+  try {
+    const schedule = db.prepare('SELECT * FROM distribution_schedules WHERE id = ?').get(id);
+    if (!schedule) {
+      return res.status(404).json({ success: false, message: 'Distribution schedule not found' });
+    }
+    
+    beneficiaryIds.forEach(beneficiaryId => {
+      db.prepare(`
+        INSERT INTO schedule_beneficiaries (schedule_id, beneficiary_id, quantity_allocated, distribution_status)
+        VALUES (?, ?, ?, 'Pending')
+      `).run(id, beneficiaryId, quantityAllocated || null);
+    });
+    
+    logAudit({
+      userId: req.user.id,
+      username: req.user.name,
+      userRole: req.user.role,
+      action: 'Added Beneficiaries to Schedule',
+      module: 'Distribution Schedules',
+      recordType: 'distribution_schedule',
+      recordId: parseInt(id),
+      recordAffected: schedule.schedule_name,
+      description: `Added ${beneficiaryIds.length} beneficiaries to distribution schedule`
+    });
+    
+    res.json({ success: true, message: 'Beneficiaries added to schedule successfully' });
+  } catch (error) {
+    console.error('Error adding beneficiaries to schedule:', error);
+    res.status(500).json({ success: false, message: 'Failed to add beneficiaries to schedule' });
+  }
+});
+
+// Record distribution for a beneficiary
+app.put('/api/distribution-schedules/:id/beneficiaries/:beneficiaryId/distribute', authMiddleware, (req, res) => {
+  const { id, beneficiaryId } = req.params;
+  const { quantityDistributed, remarks } = req.body;
+  
+  try {
+    const scheduleBeneficiary = db.prepare(`
+      SELECT sb.*, ds.intervention_name, ds.intervention_type, ds.source
+      FROM schedule_beneficiaries sb
+      JOIN distribution_schedules ds ON sb.schedule_id = ds.id
+      WHERE sb.schedule_id = ? AND sb.beneficiary_id = ?
+    `).get(id, beneficiaryId);
+    
+    if (!scheduleBeneficiary) {
+      return res.status(404).json({ success: false, message: 'Schedule beneficiary not found' });
+    }
+    
+    if (scheduleBeneficiary.distribution_status === 'Distributed') {
+      return res.status(400). json({ success: false, message: 'Already distributed' });
+    }
+    
+    db.prepare(`
+      UPDATE schedule_beneficiaries 
+      SET quantity_distributed = ?, distribution_status = 'Distributed', distributed_at = CURRENT_TIMESTAMP, distributed_by = ?, remarks = ?
+      WHERE id = ?
+    `).run(quantityDistributed || scheduleBeneficiary.quantity_allocated, req.user.id, remarks || null, scheduleBeneficiary.id);
+    
+    // Update intervention status to Claimed
+    db.prepare(`
+      UPDATE interventions 
+      SET status = 'Claimed', quantity_received = ?
+      WHERE beneficiary_id = ? AND intervention_type = ? AND intervention_name = ?
+    `).run(quantityDistributed || scheduleBeneficiary.quantity_allocated, beneficiaryId, scheduleBeneficiary.intervention_type, scheduleBeneficiary.intervention_name);
+    
+    logAudit({
+      userId: req.user.id,
+      username: req.user.name,
+      userRole: req.user.role,
+      action: 'Recorded Distribution',
+      module: 'Distribution Schedules',
+      recordType: 'distribution_schedule',
+      recordId: parseInt(id),
+      recordAffected: scheduleBeneficiary.beneficiary_name,
+      description: `Recorded distribution of ${scheduleBeneficiary.intervention_name} for beneficiary ${scheduleBeneficiary.beneficiary_name}`
+    });
+    
+    res.json({ success: true, message: 'Distribution recorded successfully' });
+  } catch (error) {
+    console.error('Error recording distribution:', error);
+    res.status(500).json({ success: false, message: 'Failed to record distribution' });
+  }
+});
+
+// =============================================================
+// INVENTORY MANAGEMENT
+// =============================================================
+
+// Get all inventory items
+app.get('/api/inventory', authMiddleware, (req, res) => {
+  const items = db.prepare(`
+    SELECT 
+      ii.*,
+      COALESCE(SUM(CASE WHEN it.transaction_type = 'Out' THEN it.quantity ELSE 0 END), 0) as total_distributed
+    FROM inventory_items ii
+    LEFT JOIN inventory_transactions it ON ii.id = it.inventory_item_id
+    GROUP BY ii.id
+    ORDER BY ii.item_name
+  `).all();
+  
+  res.json({
+    success: true,
+    items: items.map(item => ({
+      id: item.id,
+      itemName: item.item_name,
+      currentQuantity: item.current_quantity,
+      lowStockThreshold: item.low_stock_threshold,
+      unit: item.unit,
+      totalDistributed: item.total_distributed,
+      isLowStock: item.current_quantity <= item.low_stock_threshold,
+      updatedAt: item.updated_at
+    }))
+  });
+});
+
+// Add inventory item (admin only)
+app.post('/api/inventory', authMiddleware, requireAdmin, (req, res) => {
+  const { itemName, category, currentQuantity, lowStockThreshold, unit } = req.body;
+  
+  if (!itemName || !currentQuantity || !unit) {
+    return res.status(400).json({ success: false, message: 'Missing required fields' });
+  }
+  
+  try {
+    const result = db.prepare(`
+      INSERT INTO inventory_items (item_name, category, current_quantity, low_stock_threshold, unit)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(itemName, category || null, currentQuantity, lowStockThreshold || 10, unit);
+    
+    logAudit({
+      userId: req.user.id,
+      username: req.user.name,
+      userRole: req.user.role,
+      action: 'Added Inventory Item',
+      module: 'Inventory',
+      recordType: 'inventory_item',
+      recordId: result.lastInsertRowid,
+      recordAffected: itemName,
+      description: `Added ${currentQuantity} ${unit} of ${itemName} to inventory`
+    });
+    
+    res.json({
+      success: true,
+      message: 'Inventory item added successfully',
+      itemId: result.lastInsertRowid
+    });
+  } catch (error) {
+    console.error('Error adding inventory item:', error);
+    res.status(500).json({ success: false, message: 'Failed to add inventory item' });
+  }
+});
+
+// Update inventory item (admin only)
+app.put('/api/inventory/:id', authMiddleware, requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const { currentQuantity, lowStockThreshold, unit } = req.body;
+  
+  try {
+    const item = db.prepare('SELECT * FROM inventory_items WHERE id = ?').get(id);
+    if (!item) {
+      return res.status(404).json({ success: false, message: 'Inventory item not found' });
+    }
+    
+    const updates = [];
+    const params = [];
+    
+    if (currentQuantity !== undefined) {
+      updates.push('current_quantity = ?');
+      params.push(currentQuantity);
+    }
+    
+    if (lowStockThreshold !== undefined) {
+      updates.push('low_stock_threshold = ?');
+      params.push(lowStockThreshold);
+    }
+    
+    if (unit !== undefined) {
+      updates.push('unit = ?');
+      params.push(unit);
+    }
+    
+    if (updates.length > 0) {
+      updates.push('updated_at = CURRENT_TIMESTAMP');
+      params.push(id);
+      db.prepare(`UPDATE inventory_items SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+    }
+    
+    logAudit({
+      userId: req.user.id,
+      username: req.user.name,
+      userRole: req.user.role,
+      action: 'Updated Inventory Item',
+      module: 'Inventory',
+      recordType: 'inventory_item',
+      recordId: parseInt(id),
+      recordAffected: item.item_name,
+      description: 'Updated inventory item details'
+    });
+    
+    res.json({ success: true, message: 'Inventory item updated successfully' });
+  } catch (error) {
+    console.error('Error updating inventory item:', error);
+    res.status(500).json({ success: false, message: 'Failed to update inventory item' });
+  }
+});
+
+// Get inventory transactions
+app.get('/api/inventory/:id/transactions', authMiddleware, (req, res) => {
+  const { id } = req.params;
+  
+  const transactions = db.prepare(`
+    SELECT it.*, ii.item_name, u.name as performed_by_name
+    FROM inventory_transactions it
+    JOIN inventory_items ii ON it.inventory_item_id = ii.id
+    LEFT JOIN users u ON it.performed_by = u.id
+    WHERE it.inventory_item_id = ?
+    ORDER BY it.created_at DESC
+    LIMIT 100
+  `).all(id);
+  
+  res.json({
+    success: true,
+    transactions: transactions.map(t => ({
+      id: t.id,
+      transactionType: t.transaction_type,
+      quantity: t.quantity,
+      previousQuantity: t.previous_quantity,
+      newQuantity: t.new_quantity,
+      relatedScheduleId: t.related_schedule_id,
+      relatedBeneficiaryId: t.related_beneficiary_id,
+      performedBy: t.performed_by_name,
+      remarks: t.remarks,
+      createdAt: t.created_at
+    }))
+  });
+});
+
+// Record inventory transaction (admin only)
+app.post('/api/inventory/:id/transaction', authMiddleware, requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const { transactionType, quantity, relatedScheduleId, relatedBeneficiaryId, remarks } = req.body;
+  
+  if (!transactionType || !quantity) {
+    return res.status(400).json({ success: false, message: 'Missing required fields' });
+  }
+  
+  if (!['In', 'Out', 'Adjustment'].includes(transactionType)) {
+    return res.status(400).json = ({ success: false, message: 'Invalid transaction type' });
+  }
+  
+  try {
+    const item = db.prepare('SELECT * FROM inventory_items WHERE id = ?').get(id);
+    if (!item) {
+      return res.status(404).json({ success: false, message: 'Inventory item not found' });
+    }
+    
+    const quantityNum = parseFloat(quantity);
+    let newQuantity = item.current_quantity;
+    
+    if (transactionType === 'Out') {
+      if (quantityNum > item.current_quantity) {
+        return res.status(400).json({ 
+          success: false, 
+          message: `Insufficient stock. Available: ${item.current_quantity} ${item.unit}, Requested: ${quantityNum} ${item.unit}` 
+        });
+      }
+      newQuantity = item.current_quantity - quantityNum;
+    } else if (transactionType === 'In') {
+      newQuantity = item.current_quantity + quantityNum;
+    } else {
+      newQuantity = quantityNum;
+    }
+    
+    if (newQuantity < 0) {
+      return res.status(400).json({ success: false, message: 'Quantity cannot be negative' });
+    }
+    
+    db.prepare(`
+      INSERT INTO inventory_transactions (inventory_item_id, transaction_type, quantity, previous_quantity, new_quantity, related_schedule_id, related_beneficiary_id, performed_by, remarks)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, transactionType, quantityNum, item.current_quantity, newQuantity, relatedScheduleId || null, relatedBeneficiaryId || null, req.user.id, remarks || null);
+    
+    db.prepare('UPDATE inventory_items SET current_quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newQuantity, id);
+    
+    logAudit({
+      userId: req.user.id,
+      username: req.user.name,
+      userRole: req.user.role,
+      action: 'Recorded Inventory Transaction',
+      module: 'Inventory',
+      recordType: 'inventory_item',
+      recordId: parseInt(id),
+      recordAffected: item.item_name,
+      description: `${transactionType} ${quantityNum} ${item.unit} - New total: ${newQuantity} ${item.unit}`
+    });
+    
+    res.json({
+      success: true,
+      message: 'Inventory transaction recorded successfully',
+      newQuantity
+    });
+  } catch (error) {
+    console.error('Error recording inventory transaction:', error);
+    res.status(500).json({ success: false, message: 'Failed to record inventory transaction' });
+  }
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 app.listen(PORT, () => {

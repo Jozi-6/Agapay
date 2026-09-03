@@ -17,18 +17,18 @@ export function StatisticsCards({ stats }) {
         <p className="text-sm text-gray-600 mt-1">Total Beneficiaries</p>
       </div>
 
-      {/* Pending RSBSA */}
+      {/* Needs Review */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="w-12 h-12 bg-orange-500/10 rounded-lg flex items-center justify-center">
             <Clock className="text-orange-500" size={24} />
           </div>
           <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
-            Pending
+            Review
           </span>
         </div>
         <p className="text-3xl font-bold text-gray-800">{stats.pendingRSBSA}</p>
-        <p className="text-sm text-gray-600 mt-1">Pending RSBSA</p>
+        <p className="text-sm text-gray-600 mt-1">Needs Review</p>
       </div>
 
       {/* Active Interventions */}
@@ -55,7 +55,7 @@ export function StatisticsCards({ stats }) {
             Active
           </span>
         </div>
-        <p className="text-3xl font-bold text-gray-800">{stats.activeDisasterReports}</p>
+        <p className="text-3xl font-bold text-gray-800">{stats.activeCrisisReports}</p>
         <p className="text-sm text-gray-600 mt-1">Active Crisis Reports</p>
       </div>
     </div>

@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { AdminLayout } from '../../components/AdminLayout';
-import { Search, Filter, X } from 'lucide-react';
+import { AddBeneficiaryModal } from '../../components/AddBeneficiaryModal';
+import { Search, Filter, X, Plus } from 'lucide-react';
 import { OFFICIAL_BARANGAYS } from '../../constants/barangays.js';
+import { DA_INTERVENTIONS } from '../../constants/interventions.js';
 
 const API_URL = '/api';
 
@@ -19,6 +21,7 @@ function DAInterventions() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [showAddModal, setShowAddModal] = useState(false);
 
   useEffect(() => {
     fetchDAInterventions();
@@ -49,7 +52,10 @@ function DAInterventions() {
 
       const data = await response.json();
       setBeneficiaries(data.beneficiaries);
-      setAvailableFilters(data.filters);
+      setAvailableFilters({
+        barangays: OFFICIAL_BARANGAYS,
+        interventions: DA_INTERVENTIONS
+      });
       setError(null);
     } catch (err) {
       console.error('Error fetching DA interventions:', err);
@@ -78,8 +84,19 @@ function DAInterventions() {
   return (
     <AdminLayout 
       title="DA Interventions"
-      description="Department of Agriculture intervention programs"
+      description="Department of Agriculture-funded programs: PAFF, RFFA, Organic Liquid Fertilizer, Certified Rice Seeds, Complete Fertilizer, HDPE Pipes, Molasses, Agricultural Machinery, Other DA Production Inputs"
     >
+      <div className="mb-6 flex justify-between items-start">
+        <div></div>
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-agapay-purple to-agapay-blue text-white font-bold rounded-xl hover:shadow-lg transition-all"
+        >
+          <Plus size={20} />
+          Add Beneficiary
+        </button>
+      </div>
+        
       {/* Filters Section */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-6">
         <div className="flex items-center justify-between mb-4">
@@ -158,8 +175,8 @@ function DAInterventions() {
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-agapay-purple focus:border-transparent bg-white"
             >
               <option value="">All DA Interventions</option>
-              {availableFilters.interventions.map(intervention => (
-                <option key={intervention} value={intervention}>{intervention}</option>
+              {availableFilters.interventions.map((intervention, index) => (
+                <option key={`${intervention}-${index}`} value={intervention}>{intervention}</option>
               ))}
             </select>
           </div>
@@ -215,9 +232,6 @@ function DAInterventions() {
                     DA Intervention
                   </th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">
-                    Household
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">
                     Status
                   </th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">
@@ -243,9 +257,6 @@ function DAInterventions() {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-gray-600">{beneficiary.household}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
                         beneficiary.status === 'Claimed' 
                           ? 'bg-green-100 text-green-700 border border-green-200' 
@@ -266,6 +277,15 @@ function DAInterventions() {
           </div>
         </div>
       )}
+
+      {/* Add Beneficiary Modal */}
+      <AddBeneficiaryModal 
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        onSuccess={() => fetchDAInterventions()}
+        title="Add Beneficiary to DA Intervention"
+        interventionType="DA"
+      />
     </AdminLayout>
   );
 }

@@ -144,12 +144,8 @@ export function AuthProvider({ children }) {
       throw new Error(getApiErrorMessage(response, data, 'Registration failed'));
     }
 
-    if (!data?.user || !data?.token) {
-      throw new Error('Server error. Please try again.');
-    }
-
-    localStorage.setItem('token', data.token);
-    setUser(data.user);
+    // Registration creates a pending account - user cannot login until approved
+    // So we don't set the token or user here
     return data.user;
   };
 

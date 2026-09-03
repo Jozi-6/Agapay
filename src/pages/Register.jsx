@@ -1,63 +1,52 @@
-import { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { useTheme } from '../context/ThemeContext';
-import { AgapayLogoText } from '../components/AgapayLogo';
-import { Moon, Sun } from 'lucide-react';
 
-function Login() {
+function Register() {
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [role, setRole] = useState('DATA_ENCODER');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
-  const { theme, toggleTheme } = useTheme();
+  const { register } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
-
-  // Check for registration success message
-  useEffect(() => {
-    if (location.state?.message) {
-      setSuccessMessage(location.state.message);
-      // Clear the state to prevent showing message again on refresh
-      window.history.replaceState({}, document.title);
-    }
-  }, [location]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    setSuccessMessage('');
     setLoading(true);
 
-    if (!email || !password) {
-      setError('Please fill in all fields');
+    if (!name || !email || !password || !role) {
+      setError('Please fill in all required fields');
+      setLoading(false);
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      setLoading(false);
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters long');
       setLoading(false);
       return;
     }
 
     try {
-      const user = await login(email, password);
-      
-      // Redirect based on role
-      const roleRoutes = {
-        'ADMIN': '/admin/dashboard',
-        'AGRICULTURAL_TECHNOLOGIST': '/agricultural-technologist/dashboard',
-        'DATA_ENCODER': '/data-encoder/dashboard'
-      };
-      
-      const friendlyRoleNames = {
-        'ADMIN': 'Municipal Agriculturist',
-        'AGRICULTURAL_TECHNOLOGIST': 'Agricultural Technologist',
-        'DATA_ENCODER': 'Data Encoder'
-      };
-      
-      console.log(`User logged in as ${friendlyRoleNames[user.role] || user.role}`);
-      navigate(roleRoutes[user.role] || '/dashboard');
+      await register(email, password, name, role);
+      // Registration successful - redirect to login with message
+      navigate('/login', { 
+        state: { 
+          message: 'Registration successful! Your account is pending approval from the administrator.' 
+        } 
+      });
     } catch (err) {
-      setError(err.message || 'Invalid credentials');
+      setError(err.message || 'Registration failed');
     } finally {
       setLoading(false);
     }
@@ -80,36 +69,22 @@ function Login() {
         width: '100%',
         maxWidth: '450px'
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
-          <AgapayLogoText />
-          <button
-            type="button"
-            onClick={toggleTheme}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              padding: '8px',
-              borderRadius: '8px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'background-color 0.2s'
-            }}
-            onMouseOver={(e) => e.target.style.backgroundColor = 'rgba(102, 126, 234, 0.1)'}
-            onMouseOut={(e) => e.target.style.backgroundColor = 'transparent'}
-          >
-            {theme === 'light' ? <Moon size={20} color="#667eea" /> : <Sun size={20} color="#667eea" />}
-          </button>
-        </div>
-
-        <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+        <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+          <h1 style={{
+            color: '#333',
+            fontSize: '28px',
+            fontWeight: 'bold',
+            marginBottom: '8px',
+            margin: 0
+          }}>
+            AGAPAY Registration
+          </h1>
           <p style={{
             color: '#666',
             fontSize: '14px',
             margin: 0
           }}>
-            Agricultural Management System
+            Create your account
           </p>
         </div>
 
@@ -122,7 +97,37 @@ function Login() {
               fontWeight: '500',
               marginBottom: '6px'
             }}>
-              Email
+              Full Name *
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Enter your full name"
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: '1px solid #ddd',
+                borderRadius: '6px',
+                fontSize: '14px',
+                boxSizing: 'border-box',
+                outline: 'none',
+                transition: 'border-color 0.2s'
+              }}
+              onFocus={(e) => e.target.style.borderColor = '#667eea'}
+              onBlur={(e) => e.target.style.borderColor = '#ddd'}
+            />
+          </div>
+
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              color: '#333',
+              fontSize: '14px',
+              fontWeight: '500',
+              marginBottom: '6px'
+            }}>
+              Email *
             </label>
             <input
               type="email"
@@ -152,14 +157,49 @@ function Login() {
               fontWeight: '500',
               marginBottom: '6px'
             }}>
-              Password
+              Role *
+            </label>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: '1px solid #ddd',
+                borderRadius: '6px',
+                fontSize: '14px',
+                boxSizing: 'border-box',
+                outline: 'none',
+                transition: 'border-color 0.2s',
+                backgroundColor: 'white'
+              }}
+              onFocus={(e) => e.target.style.borderColor = '#667eea'}
+              onBlur={(e) => e.target.style.borderColor = '#ddd'}
+            >
+              <option value="DATA_ENCODER">Data Encoder</option>
+              <option value="AGRICULTURAL_TECHNOLOGIST">Agricultural Technologist</option>
+            </select>
+            <p style={{ fontSize: '12px', color: '#666', marginTop: '4px', margin: '4px 0 0 0' }}>
+              Note: Your account will require administrator approval before you can access the system.
+            </p>
+          </div>
+
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              color: '#333',
+              fontSize: '14px',
+              fontWeight: '500',
+              marginBottom: '6px'
+            }}>
+              Password *
             </label>
             <div style={{ position: 'relative' }}>
               <input
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter your password"
+                placeholder="Create a password (min 6 characters)"
                 style={{
                   width: '100%',
                   padding: '12px',
@@ -195,19 +235,35 @@ function Login() {
             </div>
           </div>
 
-          {successMessage && (
-            <div style={{
-              background: '#efe',
-              color: '#3c3',
-              padding: '10px',
-              borderRadius: '6px',
-              fontSize: '13px',
-              marginBottom: '20px',
-              border: '1px solid #cfc'
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              color: '#333',
+              fontSize: '14px',
+              fontWeight: '500',
+              marginBottom: '6px'
             }}>
-              {successMessage}
-            </div>
-          )}
+              Confirm Password *
+            </label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Confirm your password"
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: '1px solid #ddd',
+                borderRadius: '6px',
+                fontSize: '14px',
+                boxSizing: 'border-box',
+                outline: 'none',
+                transition: 'border-color 0.2s'
+              }}
+              onFocus={(e) => e.target.style.borderColor = '#667eea'}
+              onBlur={(e) => e.target.style.borderColor = '#ddd'}
+            />
+          </div>
 
           {error && (
             <div style={{
@@ -241,7 +297,7 @@ function Login() {
             onMouseOver={(e) => !loading && (e.target.style.opacity = '0.9')}
             onMouseOut={(e) => !loading && (e.target.style.opacity = '1')}
           >
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? 'Creating Account...' : 'Create Account'}
           </button>
         </form>
 
@@ -252,36 +308,22 @@ function Login() {
           color: '#666'
         }}>
           <p style={{ margin: 0 }}>
-            Don't have an account?{' '}
+            Already have an account?{' '}
             <a
-              href="/register"
+              href="/login"
               style={{
                 color: '#667eea',
                 textDecoration: 'none',
                 fontWeight: '500'
               }}
             >
-              Sign Up
+              Sign In
             </a>
           </p>
-        </div>
-
-        <div style={{
-          marginTop: '20px',
-          padding: '15px',
-          background: '#f8f9fa',
-          borderRadius: '6px',
-          fontSize: '12px',
-          color: '#666'
-        }}>
-          <p style={{ margin: '0 0 8px 0', fontWeight: '600' }}>Test Accounts:</p>
-          <p style={{ margin: '4px 0' }}>Admin: admin@agapay.gov / admin123</p>
-          <p style={{ margin: '4px 0' }}>Technologist: tech@agapay.gov / tech123</p>
-          <p style={{ margin: '4px 0' }}>Encoder: encoder@agapay.gov / encoder123</p>
         </div>
       </div>
     </div>
   );
 }
 
-export default Login;
+export default Register;

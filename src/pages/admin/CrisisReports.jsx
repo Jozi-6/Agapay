@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { AdminLayout } from '../../components/AdminLayout';
-import { Search, Filter, X, Plus, FileText, Check, Download, FileJson } from 'lucide-react';
+import { Search, Filter, X, Plus, FileText, Check, Download, FileJson, Eye } from 'lucide-react';
 import { NewCrisisReportModal } from '../../components/NewCrisisReportModal';
 import { PhotoGalleryModal } from '../../components/PhotoGalleryModal';
 import { OFFICIAL_BARANGAYS } from '../../constants/barangays.js';
@@ -34,19 +34,16 @@ function CrisisReports() {
   const [filters, setFilters] = useState({
     crisisType: 'All',
     barangay: 'All',
-    status: 'All',
     search: ''
   });
   const [availableFilters, setAvailableFilters] = useState({
     crisisTypes: [],
-    barangays: [],
-    statuses: []
+    barangays: []
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [showPhotoModal, setShowPhotoModal] = useState(false);
-  const [selectedPhotos, setSelectedPhotos] = useState([]);
+  const [selectedReport, setSelectedReport] = useState(null);
 
   useEffect(() => {
     fetchCrisisReports();
@@ -61,7 +58,6 @@ function CrisisReports() {
       const params = new URLSearchParams();
       if (filters.crisisType !== 'All') params.append('crisisType', filters.crisisType);
       if (filters.barangay !== 'All') params.append('barangay', filters.barangay);
-      if (filters.status !== 'All') params.append('status', filters.status);
       if (filters.search) params.append('search', filters.search);
       
       const url = `${API_URL}/admin/crisis-reports${params.toString() ? '?' + params.toString() : ''}`;
@@ -92,7 +88,6 @@ function CrisisReports() {
       const params = new URLSearchParams();
       if (filters.crisisType !== 'All') params.append('crisisType', filters.crisisType);
       if (filters.barangay !== 'All') params.append('barangay', filters.barangay);
-      if (filters.status !== 'All') params.append('status', filters.status);
       
       const url = `${API_URL}/admin/crisis-reports/summary${params.toString() ? '?' + params.toString() : ''}`;
       
@@ -117,30 +112,8 @@ function CrisisReports() {
     setFilters({
       crisisType: 'All',
       barangay: 'All',
-      status: 'All',
       search: ''
     });
-  };
-
-  const handleValidateReport = async (reportId) => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/admin/crisis-reports/${reportId}/validate`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!response.ok) throw new Error('Failed to validate report');
-
-      fetchCrisisReports();
-      fetchSummary();
-    } catch (err) {
-      console.error('Error validating report:', err);
-      alert('Failed to validate report');
-    }
   };
 
   const handleExportExcel = () => {
@@ -150,7 +123,7 @@ function CrisisReports() {
     }
 
     const csvContent = [
-      ['Beneficiary Name', 'Barangay', 'Crop Type', 'Crop Stage', 'Total Area (ha)', 'Damaged Area (ha)', 'Production Loss (MT)', 'Estimated Cost (₱)', 'Status', 'Date'],
+      ['Beneficiary Name', 'Barangay', 'Crop Type', 'Crop Stage', 'Total Area (ha)', 'Damaged Area (ha)', 'Production Loss (MT)', 'Estimated Cost (₱)', 'Date'],
       ...reports.map(r => [
         r.beneficiaryName,
         r.barangay,
@@ -160,7 +133,6 @@ function CrisisReports() {
         r.damagedAreaHectares || '',
         r.productionLossMt || '',
         r.estimatedDamageCost || '',
-        r.status,
         new Date(r.createdAt).toLocaleDateString()
       ])
     ];
@@ -181,7 +153,7 @@ function CrisisReports() {
     alert('PDF generation feature coming soon');
   };
 
-  const hasActiveFilters = filters.crisisType !== 'All' || filters.barangay !== 'All' || filters.status !== 'All' || filters.search;
+  const hasActiveFilters = filters.crisisType !== 'All' || filters.barangay !== 'All' || filters.search;
 
   return (
     <AdminLayout 
@@ -247,21 +219,6 @@ function CrisisReports() {
             </select>
           </div>
 
-          {/* Status */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
-            <select
-              value={filters.status}
-              onChange={(e) => handleFilterChange('status', e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-agapay-purple focus:border-transparent bg-white"
-            >
-              <option value="All">All</option>
-              {availableFilters.statuses.map(status => (
-                <option key={status} value={status}>{status}</option>
-              ))}
-            </select>
-          </div>
-
           {/* Search */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Beneficiary Name</label>
@@ -323,7 +280,6 @@ function CrisisReports() {
         </p>
       </div>
 
-      {/* Table */}
       {loading ? (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-12 text-center text-gray-500">
           Loading crisis reports...
@@ -345,77 +301,38 @@ function CrisisReports() {
         </div>
       ) : (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden mb-6">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">Name</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">Barangay</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">Crop / Farm</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">Stage</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">Damaged Area</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">Loss (MT)</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">Cost of Damage</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {reports.map((report) => (
-                  <tr key={report.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="font-semibold text-gray-900">{report.beneficiaryName}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-gray-600">{report.barangay}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-gray-600">{report.cropType || '-'}</div>
-                      {report.farmLocation && <div className="text-sm text-gray-500">{report.farmLocation}</div>}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-gray-600">{report.cropStage || '-'}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-gray-600">
-                        {report.totalAreaHectares}/{report.damagedAreaHectares} ha
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-gray-600">{report.productionLossMt || 0} MT</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-gray-600">
-                        ₱{report.estimatedDamageCost ? report.estimatedDamageCost.toLocaleString() : '0'}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
-                        report.status === 'Validated'
-                          ? 'bg-green-100 text-green-700 border border-green-200'
-                          : report.status === 'For Validation'
-                          ? 'bg-yellow-100 text-yellow-700 border border-yellow-200'
-                          : 'bg-red-100 text-red-700 border border-red-200'
-                      }`}>
-                        {report.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {report.status === 'For Validation' && (
-                        <button
-                          onClick={() => handleValidateReport(report.id)}
-                          className="text-agapay-purple hover:text-agapay-purpleDark flex items-center gap-1 text-sm"
-                          title="Validate report"
-                        >
-                          <Check size={16} />
-                          Validate
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 p-4">
+            {reports.map((report) => (
+              <div key={report.id} className="border border-gray-200 rounded-xl p-4 hover:border-agapay-purple hover:shadow-md transition-all bg-white">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-gray-900 truncate">{report.beneficiaryName}</p>
+                    <p className="text-sm text-gray-600 mt-0.5">{report.crisisType || report.disaster}</p>
+                  </div>
+                </div>
+
+                <div className="mt-3 space-y-1 text-xs text-gray-600">
+                  <p><span className="font-medium">Barangay:</span> {report.barangay}</p>
+                  {report.cropType && <p><span className="font-medium">Crop:</span> {report.cropType}</p>}
+                  {report.totalAreaHectares && <p><span className="font-medium">Area:</span> {report.totalAreaHectares} ha</p>}
+                  {report.estimatedDamageCost && <p><span className="font-medium">Cost:</span> ₱{Number(report.estimatedDamageCost).toLocaleString()}</p>}
+                </div>
+
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <p className="text-[11px] text-gray-400">
+                    {new Date(report.createdAt).toLocaleDateString()}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedReport(report)}
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    <Eye size={14} />
+                    View Details
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -451,9 +368,10 @@ function CrisisReports() {
       />
 
       <PhotoGalleryModal 
-        isOpen={showPhotoModal}
-        photos={selectedPhotos}
-        onClose={() => setShowPhotoModal(false)}
+        isOpen={Boolean(selectedReport)}
+        report={selectedReport}
+        photos={selectedReport?.photos || []}
+        onClose={() => setSelectedReport(null)}
       />
     </AdminLayout>
   );

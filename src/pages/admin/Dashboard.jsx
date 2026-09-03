@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { AdminLayout } from '../../components/AdminLayout';
-import { Search, Filter, Plus, Download, Upload, Package, ArrowRight, FileText } from 'lucide-react';
+import { Search, Filter, Plus, Download, Upload, Package, ArrowRight, FileText, X, SlidersHorizontal } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { OFFICIAL_BARANGAYS } from '../../constants/barangays.js';
+import { DA_INTERVENTIONS, MLGU_INTERVENTIONS } from '../../constants/interventions.js';
 
 const API_URL = '/api';
 
@@ -17,18 +19,36 @@ function AdminDashboard() {
     totalBeneficiaries: 0,
     pendingRSBSA: 0,
     activeInterventions: 0,
-    activeDisasterReports: 0
+    activeCrisisReports: 0
   });
+  
+  // Filters
+  const [filters, setFilters] = useState({
+    barangay: 'All',
+    interventionType: 'All',
+    status: 'All'
+  });
+  const [showFilters, setShowFilters] = useState(false);
+
+  const userName = user?.name || 'Municipal Agriculturist';
 
   useEffect(() => {
     fetchBeneficiaries();
-  }, [searchQuery]);
+  }, [searchQuery, filters]);
 
   const fetchBeneficiaries = async () => {
     try {
       const token = localStorage.getItem('token');
-      const url = searchQuery 
-        ? `${API_URL}/admin/beneficiaries?search=${encodeURIComponent(searchQuery)}`
+      
+      // Build query parameters for filtering
+      const params = new URLSearchParams();
+      if (searchQuery) params.append('search', searchQuery);
+      if (filters.barangay !== 'All') params.append('barangay', filters.barangay);
+      if (filters.interventionType !== 'All') params.append('interventionType', filters.interventionType);
+      if (filters.status !== 'All') params.append('status', filters.status);
+      
+      const url = params.toString() 
+        ? `${API_URL}/admin/beneficiaries?${params}`
         : `${API_URL}/admin/beneficiaries`;
       
       const response = await fetch(url, {
@@ -47,36 +67,7 @@ function AdminDashboard() {
     } catch (err) {
       console.error('Error fetching beneficiaries:', err);
       setError('Failed to load beneficiaries');
-      // Use mock data as fallback
-      setBeneficiaries([
-        {
-          id: 1,
-          name: 'Juan Dela Cruz',
-          rsbsaNumber: 'RSBSA - 0231',
-          barangay: 'Poblacion',
-          household: '3 members',
-          intervention: 'DA - Seeds',
-          status: 'Claimed'
-        },
-        {
-          id: 2,
-          name: 'Maria Santos',
-          rsbsaNumber: 'RSBSA - 0198',
-          barangay: 'Samoki',
-          household: '1 member',
-          intervention: 'LGU - Fertilizer',
-          status: 'Claimed'
-        },
-        {
-          id: 3,
-          name: 'Pedro Reyes',
-          rsbsaNumber: '(pending)',
-          barangay: 'Bontoc Ili',
-          household: '2 members',
-          intervention: 'LGU - Newly Reg.',
-          status: 'Unclaimed'
-        }
-      ]);
+      setBeneficiaries([]);
     } finally {
       setLoading(false);
     }
@@ -91,6 +82,17 @@ function AdminDashboard() {
     console.log('Clicked beneficiary:', beneficiary);
     // TODO: Navigate to beneficiary details page
   };
+
+  const clearFilters = () => {
+    setFilters({
+      barangay: 'All',
+      interventionType: 'All',
+      status: 'All'
+    });
+    setSearchQuery('');
+  };
+
+  const hasActiveFilters = filters.barangay !== 'All' || filters.interventionType !== 'All' || filters.status !== 'All' || searchQuery;
 
   const quickActions = [
     { label: 'Add User', icon: Plus, onClick: () => navigate('/admin/users') },
@@ -109,11 +111,7 @@ function AdminDashboard() {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-agapay-purple rounded-full flex items-center justify-center">
-            <span className="text-white font-semibold text-sm">{user?.name?.charAt(0) || 'A'}</span>
-          </div>
-          <div>
-            <p className="text-sm font-medium text-gray-800">{user?.name}</p>
-            <p className="text-xs text-gray-500">Admin</p>
+            <span className="text-white font-semibold text-sm">{userName.charAt(0)}</span>
           </div>
         </div>
         
@@ -123,14 +121,6 @@ function AdminDashboard() {
         >
           Logout
         </button>
-      </div>
-
-      {/* Greeting Section */}
-      <div className="mb-4">
-        <h1 className="text-3xl font-bold text-gray-800 mb-1">Hello, Admin</h1>
-        <p className="text-base bg-gradient-to-r from-agapay-purple to-agapay-purpleDark bg-clip-text text-transparent font-semibold">
-          Select an action to get started:
-        </p>
       </div>
 
       {/* Quick Action Buttons */}
@@ -162,12 +152,85 @@ function AdminDashboard() {
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-12 pr-28 py-3 bg-transparent text-white placeholder-white/70 text-base focus:outline-none"
             />
-            <button className="absolute right-1.5 px-5 py-1.5 bg-white text-gray-800 rounded-full font-semibold hover:bg-gray-100 transition-colors text-sm">
+            <button
+              type="button"
+              onClick={() => setShowFilters((prev) => !prev)}
+              className={`absolute right-1.5 px-5 py-1.5 rounded-full font-semibold hover:bg-gray-100 transition-colors text-sm flex items-center gap-1.5 ${
+                hasActiveFilters ? 'bg-agapay-lavender text-agapay-purple' : 'bg-white text-gray-800'
+              }`}
+            >
+              <Filter size={14} />
               Filter
             </button>
           </div>
         </div>
       </div>
+
+      {/* Filter Panel */}
+      {showFilters && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+              <SlidersHorizontal size={20} className="text-agapay-purple" />
+              Filter Beneficiaries
+            </h2>
+            {hasActiveFilters && (
+              <button
+                onClick={clearFilters}
+                className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X size={16} />
+                Clear Filters
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Barangay */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Barangay</label>
+              <select
+                value={filters.barangay}
+                onChange={(e) => setFilters(prev => ({ ...prev, barangay: e.target.value }))}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-agapay-purple focus:border-transparent bg-white"
+              >
+                <option value="All">All Barangays</option>
+                {OFFICIAL_BARANGAYS.map((barangay) => (
+                  <option key={barangay} value={barangay}>{barangay}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Intervention Type */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Intervention Type</label>
+              <select
+                value={filters.interventionType}
+                onChange={(e) => setFilters(prev => ({ ...prev, interventionType: e.target.value }))}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-agapay-purple focus:border-transparent bg-white"
+              >
+                <option value="All">All Types</option>
+                <option value="DA">DA Interventions</option>
+                <option value="LGU">MLGU Interventions</option>
+              </select>
+            </div>
+
+            {/* Status */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+              <select
+                value={filters.status}
+                onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-agapay-purple focus:border-transparent bg-white"
+              >
+                <option value="All">All Statuses</option>
+                <option value="Claimed">Claimed</option>
+                <option value="Unclaimed">Unclaimed</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Beneficiary Table Card */}
       {loading ? (
@@ -205,9 +268,6 @@ function AdminDashboard() {
                       Barangay
                     </th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">
-                      Household
-                    </th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">
                       Intervention
                     </th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">
@@ -237,9 +297,6 @@ function AdminDashboard() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-gray-600">{beneficiary.barangay}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-gray-600">{beneficiary.household}</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-agapay-lavender text-agapay-purple">

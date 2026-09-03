@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Search } from 'lucide-react';
+import { DA_INTERVENTIONS, MLGU_INTERVENTIONS } from '../../constants/interventions.js';
 
 const API_URL = '/api';
 
 export function InterventionList({ type }) {
   const isDA = type === 'DA';
+  const validInterventions = isDA ? DA_INTERVENTIONS : MLGU_INTERVENTIONS;
   const [beneficiaries, setBeneficiaries] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -25,7 +27,11 @@ export function InterventionList({ type }) {
       if (!response.ok) throw new Error('Failed to fetch interventions');
 
       const data = await response.json();
-      setBeneficiaries(data.beneficiaries);
+      // Filter to only show valid interventions for this type
+      const filteredBeneficiaries = (data.beneficiaries || []).filter(beneficiary => 
+        validInterventions.includes(beneficiary.intervention)
+      );
+      setBeneficiaries(filteredBeneficiaries);
       setError(null);
     } catch (err) {
       console.error('Error fetching interventions:', err);
@@ -100,7 +106,6 @@ export function InterventionList({ type }) {
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">RSBSA Number</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">Barangay</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">{isDA ? 'DA' : 'LGU'} Intervention</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">Household</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">Date</th>
                 </tr>
@@ -121,9 +126,6 @@ export function InterventionList({ type }) {
                       <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-agapay-lavender text-agapay-purple">
                         {beneficiary.intervention}
                       </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-gray-600">{beneficiary.household}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${

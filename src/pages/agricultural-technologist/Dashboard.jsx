@@ -1,14 +1,14 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { AgritechLayout } from '../../components/agritech/AgritechLayout';
-import { MetricsCard } from '../../components/agritech/MetricsCard';
-import { QuickActions } from '../../components/agritech/QuickActions';
 import { Search, UserCheck, FileText, AlertTriangle, Filter, X, SlidersHorizontal } from 'lucide-react';
 import { OFFICIAL_BARANGAYS } from '../../constants/barangays.js';
+import { DA_INTERVENTIONS, MLGU_INTERVENTIONS } from '../../constants/interventions.js';
 
 const API_URL = '/api';
 
-const STATUS_FILTERS = ['All', 'Claimed', 'Unclaimed', 'Pending'];
+const STATUS_FILTERS = ['All', 'Claimed', 'Unclaimed'];
+const ALL_INTERVENTIONS = [...DA_INTERVENTIONS, ...MLGU_INTERVENTIONS];
 
 function AgriculturalTechnologistDashboard() {
   const { user } = useAuth();
@@ -36,7 +36,10 @@ function AgriculturalTechnologistDashboard() {
 
       const data = await response.json();
       setBeneficiaries(data.beneficiaries);
-      setAvailableFilters({ barangays: data.filters.barangays, interventions: data.filters.interventions });
+      setAvailableFilters({ 
+        barangays: OFFICIAL_BARANGAYS, 
+        interventions: ALL_INTERVENTIONS 
+      });
       setError(null);
     } catch (err) {
       console.error('Error fetching beneficiaries:', err);
@@ -46,30 +49,6 @@ function AgriculturalTechnologistDashboard() {
       setLoading(false);
     }
   };
-
-  const metrics = useMemo(
-    () => [
-      {
-        icon: UserCheck,
-        label: 'Pending Validation',
-        value: beneficiaries.filter((b) => b.status === 'Pending' || !b.rsbsaNumber).length,
-        tone: 'amber',
-      },
-      {
-        icon: FileText,
-        label: 'Active Interventions',
-        value: beneficiaries.filter((b) => b.status === 'Unclaimed').length,
-        tone: 'purple',
-      },
-      {
-        icon: AlertTriangle,
-        label: 'Reports Filed This Month',
-        value: beneficiaries.filter((b) => b.status === 'Unclaimed').length > 0 ? 1 : 0,
-        tone: 'red',
-      },
-    ],
-    [beneficiaries]
-  );
 
   const filteredBeneficiaries = useMemo(() => {
     const query = searchQuery.toLowerCase();
@@ -100,19 +79,6 @@ function AgriculturalTechnologistDashboard() {
 
   return (
     <AgritechLayout>
-      {/* Greeting */}
-      <div className="mb-4">
-        <h1 className="text-3xl font-bold text-gray-800 mb-1">Hello, Agritech</h1>
-        <p className="text-base bg-gradient-to-r from-agapay-purple to-agapay-purpleDark bg-clip-text text-transparent font-semibold">
-          Select an action to get started:
-        </p>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="mb-4">
-        <QuickActions />
-      </div>
-
       {/* Search Bar */}
       <div className="mb-4">
         <div className="relative bg-gradient-to-r from-agapay-purple to-agapay-purpleDark rounded-full p-1">
@@ -183,8 +149,8 @@ function AgriculturalTechnologistDashboard() {
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-agapay-purple focus:border-transparent bg-white"
               >
                 <option value="All">All Interventions</option>
-                {availableFilters.interventions.map((intervention) => (
-                  <option key={intervention} value={intervention}>{intervention}</option>
+                {availableFilters.interventions.map((intervention, index) => (
+                  <option key={`${intervention}-${index}`} value={intervention}>{intervention}</option>
                 ))}
               </select>
             </div>
@@ -205,13 +171,6 @@ function AgriculturalTechnologistDashboard() {
           </div>
         </div>
       )}
-
-      {/* Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        {metrics.map((metric) => (
-          <MetricsCard key={metric.label} {...metric} />
-        ))}
-      </div>
 
       {/* All Beneficiaries Table */}
       <div className="mb-4">
@@ -239,7 +198,6 @@ function AgriculturalTechnologistDashboard() {
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">Name</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">RSBSA Number</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">Barangay</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">Household</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">Intervention</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">Status</th>
                 </tr>
@@ -247,7 +205,7 @@ function AgriculturalTechnologistDashboard() {
               <tbody className="divide-y divide-gray-200">
                 {filteredBeneficiaries.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                    <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
                       No beneficiaries found
                     </td>
                   </tr>
@@ -258,19 +216,10 @@ function AgriculturalTechnologistDashboard() {
                         <div className="font-semibold text-gray-900">{beneficiary.name}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        {beneficiary.rsbsaNumber ? (
-                          <div className="text-gray-600">{beneficiary.rsbsaNumber}</div>
-                        ) : (
-                          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700 border border-yellow-200">
-                            (pending)
-                          </span>
-                        )}
+                        <div className="text-gray-600">{beneficiary.rsbsaNumber || 'N/A'}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-gray-600">{beneficiary.barangay}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-gray-600">{beneficiary.household}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-agapay-lavender text-agapay-purple">
@@ -281,8 +230,6 @@ function AgriculturalTechnologistDashboard() {
                         <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${
                           beneficiary.status === 'Claimed'
                             ? 'bg-green-100 text-green-700 border-green-200'
-                            : beneficiary.status === 'Pending'
-                            ? 'bg-yellow-100 text-yellow-700 border-yellow-200'
                             : 'bg-red-100 text-red-700 border-red-200'
                         }`}>
                           {beneficiary.status}

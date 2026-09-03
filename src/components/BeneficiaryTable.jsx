@@ -24,9 +24,6 @@ export function BeneficiaryTable({ beneficiaries, onRowClick }) {
                 Barangay
               </th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                Household
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                 Intervention
               </th>
             </tr>
@@ -53,9 +50,6 @@ export function BeneficiaryTable({ beneficiaries, onRowClick }) {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-gray-600">{beneficiary.barangay}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-gray-600">{beneficiary.household}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-agapay-lavender text-agapay-purple">

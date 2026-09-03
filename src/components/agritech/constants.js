@@ -11,6 +11,8 @@ export const DISASTER_OPTIONS = [
   'Other Agricultural Crisis',
 ];
 
+export const CRISIS_OPTIONS = DISASTER_OPTIONS;
+
 export const BARANGAY_OPTIONS = OFFICIAL_BARANGAYS;
 
 export const CROP_OPTIONS = [

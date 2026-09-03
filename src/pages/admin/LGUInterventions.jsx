@@ -3,6 +3,7 @@ import { AdminLayout } from '../../components/AdminLayout';
 import { AddBeneficiaryModal } from '../../components/AddBeneficiaryModal';
 import { Search, Filter, X, Plus } from 'lucide-react';
 import { OFFICIAL_BARANGAYS } from '../../constants/barangays.js';
+import { MLGU_INTERVENTIONS } from '../../constants/interventions.js';
 
 const API_URL = '/api';
 
@@ -51,7 +52,10 @@ function LGUInterventions() {
 
       const data = await response.json();
       setBeneficiaries(data.beneficiaries);
-      setAvailableFilters(data.filters);
+      setAvailableFilters({
+        barangays: OFFICIAL_BARANGAYS,
+        interventions: MLGU_INTERVENTIONS
+      });
       setError(null);
     } catch (err) {
       console.error('Error fetching LGU interventions:', err);
@@ -79,8 +83,8 @@ function LGUInterventions() {
 
   return (
     <AdminLayout 
-      title="LGU Interventions"
-      description="Local Government Unit intervention programs"
+      title="MLGU Interventions"
+      description="Municipal Local Government Unit-funded agricultural assistance: Complete Fertilizer, Other Locally Funded Agricultural Production Inputs"
     >
       {/* Page Header */}
       <div className="mb-6 flex justify-between items-start">
@@ -172,8 +176,8 @@ function LGUInterventions() {
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-agapay-purple focus:border-transparent bg-white"
             >
               <option value="">All LGU Interventions</option>
-              {availableFilters.interventions.map(intervention => (
-                <option key={intervention} value={intervention}>{intervention}</option>
+              {availableFilters.interventions.map((intervention, index) => (
+                <option key={`${intervention}-${index}`} value={intervention}>{intervention}</option>
               ))}
             </select>
           </div>
@@ -229,9 +233,6 @@ function LGUInterventions() {
                     LGU Intervention
                   </th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">
-                    Household
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">
                     Status
                   </th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">
@@ -246,7 +247,7 @@ function LGUInterventions() {
                       <div className="font-semibold text-gray-900">{beneficiary.name}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-gray-600">{beneficiary.rsbsaNumber || 'Pending'}</div>
+                      <div className="text-gray-600">{beneficiary.rsbsaNumber || 'N/A'}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-gray-600">{beneficiary.barangay}</div>
@@ -257,17 +258,12 @@ function LGUInterventions() {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-gray-600">{beneficiary.household}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
                         beneficiary.status === 'Claimed' 
                           ? 'bg-green-100 text-green-700 border border-green-200' 
-                          : beneficiary.status === 'Pending'
-                          ? 'bg-yellow-100 text-yellow-700 border border-yellow-200'
-                          : 'bg-red-100 text-red-700 border border-red-200'
+                          : 'bg-amber-100 text-amber-700 border border-amber-200'
                       }`}>
-                        {beneficiary.status}
+                        {beneficiary.status || 'Unclaimed'}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -288,6 +284,8 @@ function LGUInterventions() {
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
         onSuccess={() => fetchLGUInterventions()}
+        title="Add Beneficiary to MLGU Intervention"
+        interventionType="LGU"
       />
     </AdminLayout>
   );

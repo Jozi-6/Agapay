@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { AgritechLayout } from '../../components/agritech/AgritechLayout';
 import { DamageReportForm } from '../../components/agritech/DamageReportForm';
-import { MapPin, FileText } from 'lucide-react';
+import { MapPin, FileText, AlertTriangle } from 'lucide-react';
 
 const API_URL = '/api';
 
@@ -22,14 +22,14 @@ function DisasterReports() {
         headers: { 'Authorization': `Bearer ${token}` },
       });
 
-      if (!response.ok) throw new Error('Failed to fetch damage reports');
+      if (!response.ok) throw new Error('Failed to fetch crisis reports');
 
       const data = await response.json();
       setReports(data.reports);
       setError(null);
     } catch (err) {
-      console.error('Error fetching damage reports:', err);
-      setError('Failed to load damage reports');
+      console.error('Error fetching crisis reports:', err);
+      setError('Failed to load crisis reports');
       setReports([]);
     } finally {
       setLoading(false);
@@ -38,15 +38,14 @@ function DisasterReports() {
 
   return (
     <AgritechLayout
-      title="Disaster Reports"
-      description="File and track agricultural disaster / damage reports"
+      title="Crisis Reports"
+      description="File and track agricultural crisis / damage reports"
     >
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* New Report Form */}
         <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-agapay-purple to-agapay-blue">
-            <h2 className="text-xl font-bold text-white">New Damage Report</h2>
-            <p className="text-sm text-white/80">Submit a crop damage report for validation</p>
+            <h2 className="text-xl font-bold text-white">New Crisis Report</h2>
           </div>
           <div className="p-6">
             <DamageReportForm onSubmit={fetchReports} />
@@ -57,7 +56,7 @@ function DisasterReports() {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
           <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-3">
             <div className="w-10 h-10 bg-agapay-lavender rounded-lg flex items-center justify-center">
-              <FileText size={20} className="text-agapay-purple" />
+              <AlertTriangle size={20} className="text-agapay-purple" />
             </div>
             <div>
               <h2 className="text-xl font-bold text-gray-800">Filed Reports</h2>
@@ -72,8 +71,8 @@ function DisasterReports() {
               <p className="text-center text-red-500 py-8">{error}</p>
             ) : reports.length === 0 ? (
               <div className="text-center py-8">
-                <FileText size={40} className="text-gray-300 mx-auto mb-3" />
-                <p className="text-gray-500">No damage reports filed yet.</p>
+                <AlertTriangle size={40} className="text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500">No crisis reports filed yet.</p>
                 <p className="text-sm text-gray-400 mt-1">Submit your first report using the form.</p>
               </div>
             ) : (

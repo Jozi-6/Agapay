@@ -1,25 +1,25 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 import Login from "./pages/Login";
+import Register from "./pages/Register";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import AdminDashboard from "./pages/admin/Dashboard";
 import DAInterventions from "./pages/admin/DAInterventions";
 import LGUInterventions from "./pages/admin/LGUInterventions";
-import NewlyRegistered from "./pages/admin/NewlyRegistered";
-import DisasterReports from "./pages/admin/DisasterReports";
+import AdminCrisisReports from "./pages/admin/CrisisReports";
 import Users from "./pages/admin/Users";
 import AuditTrail from "./pages/admin/AuditTrail";
 import Reports from "./pages/admin/Reports";
+import Beneficiaries from "./pages/admin/Beneficiaries";
+import Inventory from "./pages/admin/Inventory";
 import AgriculturalTechnologistDashboard from "./pages/agricultural-technologist/Dashboard";
-import AgriculturalTechnologistBeneficiaryValidation from "./pages/agricultural-technologist/BeneficiaryValidation";
-import AgriculturalTechnologistDisasterReports from "./pages/agricultural-technologist/DisasterReports";
+import AgriculturalTechnologistCrisisReports from "./pages/agricultural-technologist/CrisisReports";
 import AgriculturalTechnologistDAInterventions from "./pages/agricultural-technologist/DAInterventions";
 import AgriculturalTechnologistLGUInterventions from "./pages/agricultural-technologist/LGUInterventions";
 import DataEncoderDashboard from "./pages/data-encoder/Dashboard";
-import DataEncoderBeneficiaryProfiles from "./pages/data-encoder/BeneficiaryProfiles";
 import DataEncoderInterventionRecords from "./pages/data-encoder/InterventionRecords";
 import DataEncoderInventory from "./pages/data-encoder/Inventory";
-import DataEncoderDisasterReports from "./pages/data-encoder/DisasterReports";
+import DataEncoderCrisisReports from "./pages/data-encoder/CrisisReports";
 
 function App() {
   return (
@@ -27,6 +27,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
         
         <Route 
           path="/admin/dashboard" 
@@ -56,22 +57,14 @@ function App() {
         />
         
         <Route 
-          path="/admin/newly-registered" 
+          path="/admin/crisis-reports" 
           element={
             <ProtectedRoute allowedRoles={["ADMIN"]}>
-              <NewlyRegistered />
+              <AdminCrisisReports />
             </ProtectedRoute>
           } 
         />
-        
-        <Route 
-          path="/admin/disaster-reports" 
-          element={
-            <ProtectedRoute allowedRoles={["ADMIN"]}>
-              <DisasterReports />
-            </ProtectedRoute>
-          } 
-        />
+
         
         <Route 
           path="/admin/users" 
@@ -99,6 +92,25 @@ function App() {
             </ProtectedRoute>
           } 
         />
+        
+        <Route 
+          path="/admin/beneficiaries" 
+          element={
+            <ProtectedRoute allowedRoles={["ADMIN"]}>
+              <Beneficiaries />
+            </ProtectedRoute>
+          } 
+        />
+        
+        <Route 
+          path="/admin/inventory" 
+          element={
+            <ProtectedRoute allowedRoles={["ADMIN"]}>
+              <Inventory />
+            </ProtectedRoute>
+          } 
+        />
+        
 
         {/* Agricultural Technologist routes - canonical path */}
         <Route 
@@ -109,14 +121,7 @@ function App() {
             </ProtectedRoute>
           } 
         />
-        <Route 
-          path="/agricultural-technologist/beneficiary-validation" 
-          element={
-            <ProtectedRoute allowedRoles={["AGRICULTURAL_TECHNOLOGIST"]}>
-              <AgriculturalTechnologistBeneficiaryValidation />
-            </ProtectedRoute>
-          } 
-        />
+    
         <Route 
           path="/agricultural-technologist/da-intervention" 
           element={
@@ -134,14 +139,16 @@ function App() {
           } 
         />
         <Route 
-          path="/agricultural-technologist/disaster-reports" 
+          path="/agricultural-technologist/crisis-reports" 
           element={
             <ProtectedRoute allowedRoles={["AGRICULTURAL_TECHNOLOGIST"]}>
-              <AgriculturalTechnologistDisasterReports />
+              <AgriculturalTechnologistCrisisReports />
             </ProtectedRoute>
           } 
         />
 
+        
+        
         {/* Agricultural Technologist routes - /agritech alias */}
         <Route 
           path="/agritech/dashboard" 
@@ -151,14 +158,7 @@ function App() {
             </ProtectedRoute>
           } 
         />
-        <Route 
-          path="/agritech/beneficiary-validation" 
-          element={
-            <ProtectedRoute allowedRoles={["AGRICULTURAL_TECHNOLOGIST"]}>
-              <AgriculturalTechnologistBeneficiaryValidation />
-            </ProtectedRoute>
-          } 
-        />
+       
         <Route 
           path="/agritech/da-intervention" 
           element={
@@ -176,14 +176,15 @@ function App() {
           } 
         />
         <Route 
-          path="/agritech/disaster-reports" 
+          path="/agritech/crisis-reports" 
           element={
             <ProtectedRoute allowedRoles={["AGRICULTURAL_TECHNOLOGIST"]}>
-              <AgriculturalTechnologistDisasterReports />
+              <AgriculturalTechnologistCrisisReports />
             </ProtectedRoute>
           } 
         />
 
+        
         <Route 
           path="/data-encoder/dashboard" 
           element={
@@ -192,16 +193,7 @@ function App() {
             </ProtectedRoute>
           } 
         />
-
-        <Route 
-          path="/data-encoder/beneficiary-profiles" 
-          element={
-            <ProtectedRoute allowedRoles={["DATA_ENCODER"]}>
-              <DataEncoderBeneficiaryProfiles />
-            </ProtectedRoute>
-          } 
-        />
-
+        
         <Route 
           path="/data-encoder/intervention-records" 
           element={
@@ -221,13 +213,16 @@ function App() {
         />
 
         <Route 
-          path="/data-encoder/disaster-reports" 
+          path="/data-encoder/crisis-reports" 
           element={
             <ProtectedRoute allowedRoles={["DATA_ENCODER"]}>
-              <DataEncoderDisasterReports />
+              <DataEncoderCrisisReports />
             </ProtectedRoute>
           } 
         />
+
+        
+        
         
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
