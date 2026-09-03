@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, Calendar, CheckCircle, AlertCircle } from 'lucide-react';
 import { OFFICIAL_BARANGAYS } from '../constants/barangays.js';
 
-const API_URL = '/api';
+import { API_URL } from '../config/api.js';
 
 const CRISIS_TYPES = [
   'Typhoon',

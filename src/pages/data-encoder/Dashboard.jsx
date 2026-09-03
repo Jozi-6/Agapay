@@ -20,7 +20,7 @@ import { UpdateBeneficiaryModal } from '../../components/data-encoder/UpdateBene
 import { OFFICIAL_BARANGAYS } from '../../constants/barangays.js';
 import { DA_INTERVENTIONS, MLGU_INTERVENTIONS } from '../../constants/interventions.js';
 
-const API_URL = '/api';
+import { API_URL } from '../../config/api.js';
 
 function formatShortDate(dateValue) {
   if (!dateValue) {

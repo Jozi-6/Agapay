@@ -4,7 +4,7 @@ import { DataEncoderLayout } from '../../components/data-encoder/DataEncoderLayo
 import { CrisisReportForm } from '../../components/data-encoder/CrisisReportForm';
 import { PhotoGalleryModal } from '../../components/PhotoGalleryModal';
 
-const API_URL = '/api';
+import { API_URL } from '../../config/api.js';
 
 function DataEncoderCrisisReports() {
   const [reports, setReports] = useState([]);

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Search } from 'lucide-react';
 import { DA_INTERVENTIONS, MLGU_INTERVENTIONS } from '../../constants/interventions.js';
 
-const API_URL = '/api';
+import { API_URL } from '../../config/api.js';
 
 export function InterventionList({ type }) {
   const isDA = type === 'DA';

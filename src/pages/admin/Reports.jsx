@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { AdminLayout } from '../../components/AdminLayout';
 import { CalendarDays, FileDown, Loader2, AlertCircle } from 'lucide-react';
 
-const API_URL = '/api';
+import { API_URL } from '../../config/api.js';
 
 const EXPORT_FORMATS = [
   { value: 'pdf', label: 'PDF' },

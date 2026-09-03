@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { OFFICIAL_BARANGAYS } from '../../constants/barangays.js';
 import { DA_INTERVENTIONS, MLGU_INTERVENTIONS } from '../../constants/interventions.js';
 
-const API_URL = '/api';
+import { API_URL } from '../../config/api.js';
 
 function AdminDashboard() {
   const { user, logout } = useAuth();

@@ -11,7 +11,7 @@ const navItems = [
   { path: `${ROOT}/crisis-reports`, label: 'Crisis Reports', icon: AlertTriangle }
 ];
 
-const API_URL = '/api';
+import { API_URL } from '../../config/api.js';
 
 export function AgritechSidebar() {
   const location = useLocation();

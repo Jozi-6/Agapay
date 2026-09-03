@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Package, AlertTriangle } from 'lucide-react';
 import { DataEncoderLayout } from '../../components/data-encoder/DataEncoderLayout';
 
-const API_URL = '/api';
+import { API_URL } from '../../config/api.js';
 
 function DataEncoderInventory() {
   const [metrics, setMetrics] = useState(null);

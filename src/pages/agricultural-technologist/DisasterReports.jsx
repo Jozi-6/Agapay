@@ -3,7 +3,7 @@ import { AgritechLayout } from '../../components/agritech/AgritechLayout';
 import { DamageReportForm } from '../../components/agritech/DamageReportForm';
 import { MapPin, FileText, AlertTriangle } from 'lucide-react';
 
-const API_URL = '/api';
+import { API_URL } from '../../config/api.js';
 
 function DisasterReports() {
   const [reports, setReports] = useState([]);

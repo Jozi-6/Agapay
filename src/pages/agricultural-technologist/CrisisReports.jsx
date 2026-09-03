@@ -4,7 +4,7 @@ import { DamageReportForm } from '../../components/agritech/DamageReportForm';
 import { PhotoGalleryModal } from '../../components/PhotoGalleryModal';
 import { MapPin, FileText, AlertTriangle, Plus, Eye } from 'lucide-react';
 
-const API_URL = '/api';
+import { API_URL } from '../../config/api.js';
 
 function CrisisReports() {
   const [reports, setReports] = useState([]);

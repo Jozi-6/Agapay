@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { FileText, Search, Loader2 } from 'lucide-react';
 import { DataEncoderLayout } from '../../components/data-encoder/DataEncoderLayout';
 
-const API_URL = '/api';
+import { API_URL } from '../../config/api.js';
 
 function InterventionRecords() {
   const [records, setRecords] = useState([]);

@@ -8,7 +8,7 @@ import {
 } from '../agritech/constants';
 import { OFFICIAL_BARANGAYS } from '../../constants/barangays.js';
 
-const API_URL = '/api';
+import { API_URL } from '../../config/api.js';
 
 const initialForm = {
   disaster: DEFAULT_DISASTER,

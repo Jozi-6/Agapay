@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Search, Filter, FileText, X, ChevronDown } from 'lucide-react';
 
-const API_URL = '/api';
+import { API_URL } from '../config/api.js';
 
 export function AuditTrailPanel() {
   const [auditLogs, setAuditLogs] = useState([]);

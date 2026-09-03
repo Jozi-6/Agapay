@@ -5,7 +5,7 @@ import { Search, Filter, X, Plus } from 'lucide-react';
 import { OFFICIAL_BARANGAYS } from '../../constants/barangays.js';
 import { DA_INTERVENTIONS } from '../../constants/interventions.js';
 
-const API_URL = '/api';
+import { API_URL } from '../../config/api.js';
 
 function DAInterventions() {
   const [beneficiaries, setBeneficiaries] = useState([]);

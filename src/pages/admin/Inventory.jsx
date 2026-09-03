@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { AdminLayout } from '../../components/AdminLayout';
 import { Package, Plus, Minus, ArrowUpRight, ArrowDownRight, RefreshCcw } from 'lucide-react';
 
-const API_URL = '/api';
+import { API_URL } from '../../config/api.js';
 
 function Inventory() {
   const [items, setItems] = useState([]);

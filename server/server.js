@@ -18,8 +18,12 @@ import { getReportFilters, getReportRecords, generateCsv, generateExcel, generat
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',') 
+  : ['http://localhost:5173', 'http://127.0.0.1:5173', 'https://jozi-6.github.io'];
+
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'https://jozi-6.github.io'],
+  origin: allowedOrigins,
   credentials: true
 }));
 app.use(express.json());

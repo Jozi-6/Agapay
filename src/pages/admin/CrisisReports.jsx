@@ -5,7 +5,7 @@ import { NewCrisisReportModal } from '../../components/NewCrisisReportModal';
 import { PhotoGalleryModal } from '../../components/PhotoGalleryModal';
 import { OFFICIAL_BARANGAYS } from '../../constants/barangays.js';
 
-const API_URL = '/api';
+import { API_URL } from '../../config/api.js';
 const CRISIS_TYPES = [
   'Typhoon',
   'Drought / El Niño',

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Upload, X, AlertCircle, CheckCircle2, FileSpreadsheet } from 'lucide-react';
 
-const API_URL = '/api';
+import { API_URL } from '../../config/api.js';
 
 export function DataEncoderExcelImportModal({ isOpen, onClose, onImported }) {
   const [file, setFile] = useState(null);

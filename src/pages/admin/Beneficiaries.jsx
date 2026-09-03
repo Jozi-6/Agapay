@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from '../../components/AdminLayout';
 import { Search, Filter, Download, ChevronLeft, ChevronRight, RefreshCcw } from 'lucide-react';
 
-const API_URL = '/api';
+import { API_URL } from '../../config/api.js';
 
 const initialFilters = {
   search: '',

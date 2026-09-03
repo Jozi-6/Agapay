@@ -3,7 +3,7 @@ import { X, CheckCircle, AlertCircle } from 'lucide-react';
 import { OFFICIAL_BARANGAYS } from '../../constants/barangays.js';
 import { DA_INTERVENTIONS, MLGU_INTERVENTIONS } from '../../constants/interventions.js';
 
-const API_URL = '/api';
+import { API_URL } from '../../config/api.js';
 
 export function UpdateBeneficiaryModal({ isOpen, onClose, beneficiary, onSuccess }) {
   const [formData, setFormData] = useState({
